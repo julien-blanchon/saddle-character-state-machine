@@ -1,0 +1,19 @@
+[workspace]
+members = [
+    "support",
+    "basic",
+    "locomotion_3d",
+    "sprite_2d",
+    "stacked_actions",
+    "lab",
+]
+resolver = "3"
+
+[workspace.dependencies]
+bevy = { version = "0.18", features = ["serialize"] }
+saddle-character-state-machine = { path = ".." }
+
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"
+nonstandard_macro_braces = "warn"
