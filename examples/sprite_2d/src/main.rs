@@ -1,4 +1,7 @@
+use saddle_character_state_machine_example_support as support;
+
 use bevy::prelude::*;
+use saddle_pane::prelude::*;
 use saddle_character_state_machine::*;
 
 #[derive(Component)]
@@ -7,10 +10,45 @@ struct PlatformerSprite;
 #[derive(Component)]
 struct PlatformerHud;
 
+#[derive(Resource, Pane)]
+#[pane(title = "Sprite 2D")]
+struct SpritePane {
+    #[pane(tab = "Movement", slider, min = 60.0, max = 320.0, step = 5.0)]
+    move_speed: f32,
+    #[pane(tab = "Movement", slider, min = 180.0, max = 600.0, step = 10.0)]
+    jump_velocity: f32,
+    #[pane(tab = "Movement", slider, min = 300.0, max = 1600.0, step = 25.0)]
+    gravity: f32,
+    #[pane(tab = "Movement", slider, min = 40.0, max = 220.0, step = 5.0)]
+    wall_slide_speed: f32,
+    #[pane(tab = "Runtime", monitor)]
+    current_state: String,
+    #[pane(tab = "Runtime", monitor)]
+    current_binding: String,
+}
+
+impl Default for SpritePane {
+    fn default() -> Self {
+        Self {
+            move_speed: 180.0,
+            jump_velocity: 420.0,
+            gravity: 900.0,
+            wall_slide_speed: 120.0,
+            current_state: "Idle".into(),
+            current_binding: "idle".into(),
+        }
+    }
+}
+
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
+        .add_plugins((
+            DefaultPlugins.set(ImagePlugin::default_nearest()),
+            support::pane_plugins(),
+        ))
         .add_plugins(CharacterStateMachinePlugin::always_on(Update))
+        .init_resource::<SpritePane>()
+        .register_pane::<SpritePane>()
         .add_systems(Startup, setup)
         .add_systems(Update, (drive_platformer, apply_sprite_style, update_hud))
         .run();
@@ -130,6 +168,7 @@ fn setup(mut commands: Commands, mut library: ResMut<CharacterStateMachineLibrar
 fn drive_platformer(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    pane: Res<SpritePane>,
     mut query: Query<(&mut Transform, &mut CharacterAnimationFacts), With<PlatformerSprite>>,
 ) {
     for (mut transform, mut facts) in &mut query {
@@ -137,20 +176,20 @@ fn drive_platformer(
             - keyboard.pressed(KeyCode::ArrowLeft) as i8) as f32;
         facts.speed = axis.abs();
         transform.translation.x =
-            (transform.translation.x + axis * 180.0 * time.delta_secs()).clamp(-280.0, 280.0);
+            (transform.translation.x + axis * pane.move_speed * time.delta_secs()).clamp(-280.0, 280.0);
 
         if keyboard.just_pressed(KeyCode::Space) && facts.grounded {
             facts.grounded = false;
-            facts.vertical_velocity = 420.0;
+            facts.vertical_velocity = pane.jump_velocity;
         }
 
         if !facts.grounded {
-            facts.vertical_velocity -= 900.0 * time.delta_secs();
+            facts.vertical_velocity -= pane.gravity * time.delta_secs();
             transform.translation.y += facts.vertical_velocity * time.delta_secs();
             facts.wall_contact =
                 transform.translation.x.abs() >= 275.0 && facts.vertical_velocity < 0.0;
             if facts.wall_contact {
-                facts.vertical_velocity = facts.vertical_velocity.max(-120.0);
+                facts.vertical_velocity = facts.vertical_velocity.max(-pane.wall_slide_speed);
             }
             if transform.translation.y <= -70.0 {
                 transform.translation.y = -70.0;
@@ -199,10 +238,14 @@ fn apply_sprite_style(
 }
 
 fn update_hud(
-    runtime: Single<&CharacterStateMachineRuntime, With<PlatformerSprite>>,
+    runtime: Single<
+        (&CharacterStateMachineRuntime, &CharacterAnimationSelection),
+        With<PlatformerSprite>,
+    >,
     mut hud: Single<&mut Text, With<PlatformerHud>>,
+    mut pane: ResMut<SpritePane>,
 ) {
-    let runtime = *runtime;
+    let (runtime, selection) = *runtime;
     let current = runtime
         .current_state
         .as_ref()
@@ -213,4 +256,12 @@ fn update_hud(
         runtime.state_stack.len(),
         runtime.normalized_time,
     );
+
+    let pane = pane.bypass_change_detection();
+    pane.current_state = current.into();
+    pane.current_binding = selection
+        .binding
+        .as_ref()
+        .map(|binding| binding.0.clone())
+        .unwrap_or_else(|| "none".into());
 }

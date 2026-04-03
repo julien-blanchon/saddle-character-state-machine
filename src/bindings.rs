@@ -85,12 +85,122 @@ impl BevyAnimationBridge {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Reflect)]
+pub enum CharacterAnimationBindingSlot {
+    Base,
+    Layer(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Reflect)]
+pub struct CharacterAnimationActiveBinding {
+    pub slot: CharacterAnimationBindingSlot,
+    pub binding: CharacterAnimationBindingId,
+    pub weight: f32,
+    pub sync_normalized_time: Option<f32>,
+}
+
+impl CharacterAnimationActiveBinding {
+    pub fn base(
+        binding: impl Into<CharacterAnimationBindingId>,
+        weight: f32,
+        sync_normalized_time: Option<f32>,
+    ) -> Self {
+        Self {
+            slot: CharacterAnimationBindingSlot::Base,
+            binding: binding.into(),
+            weight,
+            sync_normalized_time,
+        }
+    }
+
+    pub fn layer(
+        name: impl Into<String>,
+        binding: impl Into<CharacterAnimationBindingId>,
+        weight: f32,
+        sync_normalized_time: Option<f32>,
+    ) -> Self {
+        Self {
+            slot: CharacterAnimationBindingSlot::Layer(name.into()),
+            binding: binding.into(),
+            weight,
+            sync_normalized_time,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Reflect)]
+pub enum CharacterAnimationLayerMode {
+    #[default]
+    Override,
+    Additive,
+}
+
+#[derive(Clone, Debug, PartialEq, Reflect)]
+pub struct CharacterAnimationLayer {
+    pub name: String,
+    pub enabled: bool,
+    pub binding: CharacterAnimationBindingId,
+    pub weight: f32,
+    pub mode: CharacterAnimationLayerMode,
+    pub sync_to_base_time: bool,
+}
+
+impl CharacterAnimationLayer {
+    pub fn new(name: impl Into<String>, binding: impl Into<CharacterAnimationBindingId>) -> Self {
+        Self {
+            name: name.into(),
+            enabled: true,
+            binding: binding.into(),
+            weight: 1.0,
+            mode: CharacterAnimationLayerMode::Override,
+            sync_to_base_time: false,
+        }
+    }
+
+    pub fn with_weight(mut self, weight: f32) -> Self {
+        self.weight = weight;
+        self
+    }
+
+    pub fn additive(mut self) -> Self {
+        self.mode = CharacterAnimationLayerMode::Additive;
+        self
+    }
+
+    pub fn sync_to_base_time(mut self) -> Self {
+        self.sync_to_base_time = true;
+        self
+    }
+
+    pub fn disabled(mut self) -> Self {
+        self.enabled = false;
+        self
+    }
+}
+
+#[derive(Component, Clone, Debug, Default, Reflect)]
+#[reflect(Component, Default)]
+pub struct CharacterAnimationLayers {
+    pub layers: Vec<CharacterAnimationLayer>,
+}
+
+impl CharacterAnimationLayers {
+    pub fn push(&mut self, layer: CharacterAnimationLayer) {
+        self.layers.push(layer);
+    }
+}
+
 #[derive(Component, Clone, Debug, Default, Reflect)]
 #[reflect(Component, Default)]
 pub struct CharacterAnimationSelection {
     pub state: Option<CharacterStateId>,
     pub binding: Option<CharacterAnimationBindingId>,
+    pub active_bindings: Vec<CharacterAnimationActiveBinding>,
     pub blend: BlendDefinition,
     pub sync_normalized_time: Option<f32>,
     pub generation: u64,
 }
+
+#[cfg(test)]
+#[path = "bindings_tests.rs"]
+mod tests;

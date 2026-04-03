@@ -1,9 +1,17 @@
+#[cfg(feature = "e2e")]
+mod e2e;
+#[cfg(feature = "e2e")]
+mod scenarios;
+
+use saddle_character_state_machine_example_support as support;
+
 use std::f32::consts::PI;
 
 use bevy::{
     animation::{AnimatedBy, AnimationTargetId, animated_field},
     prelude::*,
 };
+use saddle_pane::prelude::*;
 use saddle_character_state_machine::*;
 
 #[derive(Component)]
@@ -15,6 +23,42 @@ struct LabOverlay;
 #[derive(Resource, Default)]
 struct AirState {
     airborne_time: f32,
+}
+
+#[derive(Resource, Pane)]
+#[pane(title = "State Machine Lab")]
+struct LabPane {
+    #[pane(tab = "Drive", slider, min = 0.0, max = 1.4, step = 0.05)]
+    move_speed: f32,
+    #[pane(tab = "Drive", slider, min = 0.5, max = 4.0, step = 0.1)]
+    translation_speed: f32,
+    #[pane(tab = "Drive", slider, min = 1.0, max = 8.0, step = 0.1)]
+    jump_velocity: f32,
+    #[pane(tab = "Drive", slider, min = 0.0, max = 0.6, step = 0.02)]
+    jump_hold_seconds: f32,
+    #[pane(tab = "Drive", slider, min = 4.0, max = 24.0, step = 0.5)]
+    gravity: f32,
+    #[pane(tab = "Runtime", monitor)]
+    current_state: String,
+    #[pane(tab = "Runtime", monitor)]
+    current_binding: String,
+    #[pane(tab = "Runtime", monitor)]
+    queued_requests: String,
+}
+
+impl Default for LabPane {
+    fn default() -> Self {
+        Self {
+            move_speed: 1.0,
+            translation_speed: 1.8,
+            jump_velocity: 4.8,
+            jump_hold_seconds: 0.24,
+            gravity: 15.0,
+            current_state: "Idle".into(),
+            current_binding: "idle".into(),
+            queued_requests: "none".into(),
+        }
+    }
 }
 
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -30,8 +74,13 @@ fn main() {
     app.add_plugins((
         DefaultPlugins,
         CharacterStateMachinePlugin::always_on(Update),
+        support::pane_plugins(),
     ));
+    #[cfg(feature = "e2e")]
+    app.add_plugins(e2e::CharacterStateMachineLabE2EPlugin);
     app.insert_resource(AirState::default());
+    app.init_resource::<LabPane>();
+    app.register_pane::<LabPane>();
     app.configure_sets(
         Update,
         (
@@ -44,6 +93,8 @@ fn main() {
         )
             .chain(),
     );
+    #[cfg(feature = "e2e")]
+    app.configure_sets(Update, saddle_bevy_e2e::E2ESet.before(LabSystems::Control));
     app.add_systems(Startup, setup);
     app.add_systems(Update, control_character.in_set(LabSystems::Control));
     app.add_systems(Update, update_overlay.in_set(LabSystems::Overlay));
@@ -147,6 +198,7 @@ fn control_character(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut air_state: ResMut<AirState>,
+    pane: Res<LabPane>,
     mut query: Query<
         (
             &mut Transform,
@@ -158,7 +210,7 @@ fn control_character(
 ) {
     for (mut transform, mut facts, mut requests) in &mut query {
         let moving = keyboard.pressed(KeyCode::KeyW);
-        facts.speed = if moving { 1.0 } else { 0.0 };
+        facts.speed = if moving { pane.move_speed } else { 0.0 };
         facts.locomotion_mode = if moving {
             LocomotionMode::Run
         } else {
@@ -166,7 +218,8 @@ fn control_character(
         };
         if moving {
             transform.translation.x =
-                (transform.translation.x + 1.8 * time.delta_secs()).clamp(-4.0, 4.0);
+                (transform.translation.x + pane.translation_speed * time.delta_secs())
+                    .clamp(-4.0, 4.0);
         }
 
         if keyboard.just_pressed(KeyCode::KeyJ) {
@@ -180,16 +233,16 @@ fn control_character(
         }
         if keyboard.just_pressed(KeyCode::Space) && facts.grounded {
             facts.grounded = false;
-            facts.vertical_velocity = 4.8;
-            air_state.airborne_time = 0.24;
+            facts.vertical_velocity = pane.jump_velocity;
+            air_state.airborne_time = pane.jump_hold_seconds;
         }
 
         if !facts.grounded {
             if air_state.airborne_time > 0.0 {
                 air_state.airborne_time -= time.delta_secs();
-                facts.vertical_velocity = 4.8;
+                facts.vertical_velocity = pane.jump_velocity;
             } else {
-                facts.vertical_velocity -= 15.0 * time.delta_secs();
+                facts.vertical_velocity -= pane.gravity * time.delta_secs();
             }
             transform.translation.y += facts.vertical_velocity * time.delta_secs();
             if transform.translation.y <= 0.0 {
@@ -204,11 +257,18 @@ fn control_character(
 }
 
 fn update_overlay(
-    runtime: Single<&CharacterStateMachineRuntime, With<LabCharacter>>,
+    runtime: Single<
+        (
+            &CharacterStateMachineRuntime,
+            &CharacterAnimationSelection,
+        ),
+        With<LabCharacter>,
+    >,
     facts: Single<&CharacterAnimationFacts, With<LabCharacter>>,
     mut overlay: Single<&mut Text, With<LabOverlay>>,
+    mut pane: ResMut<LabPane>,
 ) {
-    let runtime = *runtime;
+    let (runtime, selection) = *runtime;
     let facts = *facts;
     let current = runtime
         .current_state
@@ -258,6 +318,19 @@ fn update_overlay(
         facts.grounded,
         facts.vertical_velocity,
     );
+
+    let pane = pane.bypass_change_detection();
+    pane.current_state = current.into();
+    pane.current_binding = selection
+        .binding
+        .as_ref()
+        .map(|binding| binding.0.clone())
+        .unwrap_or_else(|| "none".into());
+    pane.queued_requests = if queued.is_empty() {
+        "none".into()
+    } else {
+        queued
+    };
 }
 
 fn build_definition() -> CharacterStateMachineDefinition {

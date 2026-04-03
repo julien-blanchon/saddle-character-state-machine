@@ -1,4 +1,7 @@
+use saddle_character_state_machine_example_support as support;
+
 use bevy::prelude::*;
+use saddle_pane::prelude::*;
 use saddle_character_state_machine::*;
 
 #[derive(Component)]
@@ -12,11 +15,46 @@ struct DemoClock {
     elapsed: f32,
 }
 
+#[derive(Resource, Pane)]
+#[pane(title = "State Machine Basic")]
+struct BasicPane {
+    #[pane(tab = "Drive", slider, min = 1.5, max = 8.0, step = 0.1)]
+    cycle_seconds: f32,
+    #[pane(tab = "Drive", slider, min = 0.0, max = 6.0, step = 0.1)]
+    move_start_seconds: f32,
+    #[pane(tab = "Drive", slider, min = 0.0, max = 6.0, step = 0.1)]
+    pulse_at_seconds: f32,
+    #[pane(tab = "Drive", slider, min = 0.0, max = 1.5, step = 0.05)]
+    move_speed: f32,
+    #[pane(tab = "Runtime", monitor)]
+    current_state: String,
+    #[pane(tab = "Runtime", monitor)]
+    current_binding: String,
+    #[pane(tab = "Runtime", monitor)]
+    last_transition: String,
+}
+
+impl Default for BasicPane {
+    fn default() -> Self {
+        Self {
+            cycle_seconds: 4.0,
+            move_start_seconds: 1.5,
+            pulse_at_seconds: 3.0,
+            move_speed: 1.0,
+            current_state: "Idle".into(),
+            current_binding: "idle".into(),
+            last_transition: "none".into(),
+        }
+    }
+}
+
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins((DefaultPlugins, support::pane_plugins()))
         .add_plugins(CharacterStateMachinePlugin::always_on(Update))
         .insert_resource(DemoClock::default())
+        .init_resource::<BasicPane>()
+        .register_pane::<BasicPane>()
         .add_systems(Startup, setup)
         .add_systems(Update, (drive_demo, paint_sprite, update_label))
         .run();
@@ -87,6 +125,7 @@ fn setup(mut commands: Commands, mut library: ResMut<CharacterStateMachineLibrar
 fn drive_demo(
     time: Res<Time>,
     mut clock: ResMut<DemoClock>,
+    pane: Res<BasicPane>,
     mut query: Query<
         (
             &mut CharacterAnimationFacts,
@@ -95,17 +134,24 @@ fn drive_demo(
         With<DemoSprite>,
     >,
 ) {
+    let cycle_seconds = pane.cycle_seconds.max(0.5);
+    let move_start = pane.move_start_seconds.clamp(0.0, cycle_seconds);
+    let pulse_at = pane.pulse_at_seconds.clamp(0.0, cycle_seconds);
+    let previous_elapsed = clock.elapsed;
     clock.elapsed += time.delta_secs();
-    let phase = clock.elapsed % 4.0;
+    let phase = clock.elapsed % cycle_seconds;
+    let previous_phase = previous_elapsed % cycle_seconds;
 
     for (mut facts, mut requests) in &mut query {
-        facts.speed = if phase < 1.5 { 0.0 } else { 1.0 };
+        facts.speed = if phase < move_start { 0.0 } else { pane.move_speed };
         facts.locomotion_mode = if facts.speed > 0.0 {
             LocomotionMode::Run
         } else {
             LocomotionMode::Idle
         };
-        if (3.0..3.1).contains(&phase) {
+        let pulse_crossed = previous_phase <= pulse_at && phase > pulse_at
+            || previous_phase > phase && pulse_at <= phase;
+        if pulse_crossed {
             requests.push("pulse");
         }
     }
@@ -133,6 +179,7 @@ fn paint_sprite(mut sprites: Query<(&CharacterAnimationSelection, &mut Sprite), 
 fn update_label(
     runtime: Single<&CharacterStateMachineRuntime, With<DemoSprite>>,
     mut label: Single<&mut Text, With<DemoLabel>>,
+    mut pane: ResMut<BasicPane>,
 ) {
     let runtime = *runtime;
     let current = runtime
@@ -156,4 +203,9 @@ fn update_label(
         "saddle-character-state-machine basic\nstate: {current}\nbinding: {binding}\nstate time: {:.2}\nlast transition: {transition}",
         runtime.state_elapsed_seconds
     );
+
+    let pane = pane.bypass_change_detection();
+    pane.current_state = current.into();
+    pane.current_binding = binding.into();
+    pane.last_transition = transition.into();
 }

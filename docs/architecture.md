@@ -15,6 +15,9 @@ CharacterAnimationFacts / CharacterAnimationRequests
  CharacterStateMachineRuntime + Selection
                     |
                     v
+ Weighted binding expansion + optional layers
+                    |
+                    v
  Optional BevyAnimationBridge adapter
 ```
 
@@ -31,7 +34,7 @@ The runtime revolves around five concepts:
 4. `CharacterStateMachineRuntime`
    Per-entity runtime state: current state, previous state, pushdown stack, current binding, pending request, state timer, normalized time, and last transition trace.
 5. `CharacterAnimationSelection`
-   The consumer-facing output: selected state, logical binding id, blend metadata, and optional sync hint.
+   The consumer-facing output: selected state, dominant logical binding id, weighted `active_bindings`, blend metadata, and optional sync hint.
 
 ## Resolution Flow
 
@@ -62,7 +65,13 @@ GatherFacts -> ResolveTransitions -> ApplyAnimation -> Cleanup
 
 - `CharacterAnimationSelection` is updated whenever the active state or logical binding changes.
 - Transition-level blend overrides are copied onto `CharacterAnimationSelection`, and the runtime emits normalized-time sync hints for source-time sync and pop/resume cases.
-- If a `BevyAnimationBridge` exists, the runtime drives `AnimationTransitions::play(...)` on the target `AnimationPlayer`.
+- A follow-up expansion pass turns the logical state into weighted active bindings:
+  - a plain state becomes one base binding
+  - a `BlendTree1D` state becomes 1-2 weighted base bindings
+  - optional `CharacterAnimationLayers` append concurrent overlay bindings
+- If a `BevyAnimationBridge` exists, the runtime drives:
+  - `AnimationTransitions::play(...)` for single-binding playback
+  - direct weighted animation playback for blend-tree/layer cases
 - If no bridge exists, the logical selection still updates for custom 2D / UI / sprite adapters.
 
 ### Cleanup
@@ -127,6 +136,8 @@ Consumers read `CharacterAnimationSelection` and map it to:
 - optional duration hint for normalized time sync
 
 The runtime deliberately keeps state selection separate from raw playback. This keeps the core reusable even when the consumer is not using Bevy skeletal animation.
+
+When you need skeletal masking or additive behavior, author that in the `AnimationGraph` itself. The state-machine crate provides the weighted playback plan and concurrent binding activation; the graph determines how those clips combine on the rig.
 
 ## Failure Modes
 

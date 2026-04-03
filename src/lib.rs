@@ -6,7 +6,9 @@ mod messages;
 mod systems;
 
 pub use bindings::{
-    BevyAnimationBinding, BevyAnimationBridge, CharacterAnimationSelection, PlaybackRepeat,
+    BevyAnimationBinding, BevyAnimationBridge, CharacterAnimationActiveBinding,
+    CharacterAnimationBindingSlot, CharacterAnimationLayer, CharacterAnimationLayerMode,
+    CharacterAnimationLayers, CharacterAnimationSelection, PlaybackRepeat,
 };
 pub use components::{
     ActiveStateFrame, CharacterActionRequest, CharacterAnimationFacts, CharacterAnimationRequests,
@@ -14,7 +16,8 @@ pub use components::{
     TransitionOutcome, TransitionRejectionReason,
 };
 pub use config::{
-    BlendDefinition, BlendEasing, CharacterActionId, CharacterAnimationBindingId, CharacterStateId,
+    BlendDefinition, BlendEasing, BlendTree1D, BlendTree1DPoint, BlendTreeParameter,
+    CharacterActionId, CharacterAnimationBindingId, CharacterStateId,
     CharacterStateMachineDefinition, CharacterStateMachineDefinitionId,
     CharacterStateMachineLibrary, CharacterStateMachineValidationError, CharacterTransitionId,
     NormalizedTimeWindow, PushConflictPolicy, ResumePolicy, StateDefinition, StateKind,
@@ -81,10 +84,18 @@ impl Plugin for CharacterStateMachinePlugin {
             .register_type::<BevyAnimationBridge>()
             .register_type::<BlendDefinition>()
             .register_type::<BlendEasing>()
+            .register_type::<BlendTree1D>()
+            .register_type::<BlendTree1DPoint>()
+            .register_type::<BlendTreeParameter>()
             .register_type::<CharacterActionId>()
             .register_type::<CharacterActionRequest>()
+            .register_type::<CharacterAnimationActiveBinding>()
             .register_type::<CharacterAnimationBindingId>()
             .register_type::<CharacterAnimationFacts>()
+            .register_type::<CharacterAnimationBindingSlot>()
+            .register_type::<CharacterAnimationLayer>()
+            .register_type::<CharacterAnimationLayerMode>()
+            .register_type::<CharacterAnimationLayers>()
             .register_type::<CharacterAnimationRequests>()
             .register_type::<CharacterAnimationSelection>()
             .register_type::<CharacterStateId>()
@@ -119,7 +130,11 @@ impl Plugin for CharacterStateMachinePlugin {
                         .in_set(CharacterStateMachineSystems::GatherFacts),
                     systems::advance_machines
                         .in_set(CharacterStateMachineSystems::ResolveTransitions),
-                    systems::apply_animation_selection
+                    (
+                        systems::expand_animation_selection,
+                        systems::apply_animation_selection,
+                    )
+                        .chain()
                         .in_set(CharacterStateMachineSystems::ApplyAnimation),
                     systems::clear_transient_requests.in_set(CharacterStateMachineSystems::Cleanup),
                 ),

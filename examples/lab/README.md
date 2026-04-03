@@ -18,6 +18,14 @@ Working
 cargo run -p character_state_machine_lab
 ```
 
+## E2E
+
+```bash
+cargo run -p saddle-character-state-machine-lab --features e2e -- state_machine_smoke
+cargo run -p saddle-character-state-machine-lab --features e2e -- state_machine_airborne
+cargo run -p saddle-character-state-machine-lab --features e2e -- state_machine_actions
+```
+
 The lab names the main actor `State Machine Hero` and the overlay `Character State Machine Overlay`, so BRP and E2E helpers can locate them without relying on private marker types.
 
 ## Notes

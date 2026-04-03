@@ -8,6 +8,35 @@ use saddle_character_state_machine::*;
 
 pub const RIG_NAME: &str = "Rig";
 
+pub fn pane_plugins() -> (
+    bevy_flair::FlairPlugin,
+    bevy_input_focus::InputDispatchPlugin,
+    bevy_ui_widgets::UiWidgetsPlugins,
+    bevy_input_focus::tab_navigation::TabNavigationPlugin,
+    saddle_pane::PanePlugin,
+) {
+    (
+        bevy_flair::FlairPlugin,
+        bevy_input_focus::InputDispatchPlugin,
+        bevy_ui_widgets::UiWidgetsPlugins,
+        bevy_input_focus::tab_navigation::TabNavigationPlugin,
+        saddle_pane::PanePlugin,
+    )
+}
+
+pub fn format_active_bindings(selection: &CharacterAnimationSelection) -> String {
+    if selection.active_bindings.is_empty() {
+        return "none".into();
+    }
+
+    selection
+        .active_bindings
+        .iter()
+        .map(|binding| format!("{}:{:.2}", binding.binding.0, binding.weight))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub fn build_showcase_definition(
     id: impl Into<CharacterStateMachineDefinitionId>,
 ) -> CharacterStateMachineDefinition {
@@ -23,7 +52,11 @@ pub fn build_showcase_definition(
         .add_state(
             StateDefinition::new("Locomotion")
                 .with_parent("Grounded")
-                .with_binding("locomotion")
+                .with_blend_tree_1d(
+                    BlendTree1D::new(BlendTreeParameter::Speed)
+                        .with_point(0.25, "walk")
+                        .with_point(1.0, "run"),
+                )
                 .with_expected_duration(0.65),
         )
         .add_state(
@@ -145,7 +178,7 @@ pub fn setup_basic_3d_scene(
     ));
 }
 
-/// Builds the showcase animation bridge with all 8 animation clips wired up.
+/// Builds the showcase animation bridge with locomotion blend-tree and overlay clips wired up.
 pub fn build_animation_bridge(
     animations: &mut Assets<AnimationClip>,
     graphs: &mut Assets<AnimationGraph>,
@@ -153,30 +186,34 @@ pub fn build_animation_bridge(
     let target = AnimationTargetId::from_name(&Name::new(RIG_NAME));
     let clips = [
         animations.add(idle_clip(target)),
-        animations.add(locomotion_clip(target)),
+        animations.add(walk_clip(target)),
+        animations.add(run_clip(target)),
         animations.add(jump_start_clip(target)),
         animations.add(airborne_clip(target)),
         animations.add(land_clip(target)),
         animations.add(attack_clip(target)),
         animations.add(reload_clip(target)),
         animations.add(emote_clip(target)),
+        animations.add(aim_overlay_clip(target)),
     ];
     let (graph, nodes) = AnimationGraph::from_clips(clips);
     let graph_handle = graphs.add(graph);
     let bindings = vec![
         BevyAnimationBinding::new("idle", nodes[0].index() as u32, Some(1.1)),
-        BevyAnimationBinding::new("locomotion", nodes[1].index() as u32, Some(0.65)),
-        BevyAnimationBinding::new("jump_start", nodes[2].index() as u32, Some(0.22))
+        BevyAnimationBinding::new("walk", nodes[1].index() as u32, Some(0.72)),
+        BevyAnimationBinding::new("run", nodes[2].index() as u32, Some(0.65)),
+        BevyAnimationBinding::new("jump_start", nodes[3].index() as u32, Some(0.22))
             .with_repeat(PlaybackRepeat::Never),
-        BevyAnimationBinding::new("airborne", nodes[3].index() as u32, Some(0.55)),
-        BevyAnimationBinding::new("land", nodes[4].index() as u32, Some(0.18))
+        BevyAnimationBinding::new("airborne", nodes[4].index() as u32, Some(0.55)),
+        BevyAnimationBinding::new("land", nodes[5].index() as u32, Some(0.18))
             .with_repeat(PlaybackRepeat::Never),
-        BevyAnimationBinding::new("attack", nodes[5].index() as u32, Some(0.35))
+        BevyAnimationBinding::new("attack", nodes[6].index() as u32, Some(0.35))
             .with_repeat(PlaybackRepeat::Never),
-        BevyAnimationBinding::new("reload", nodes[6].index() as u32, Some(0.8))
+        BevyAnimationBinding::new("reload", nodes[7].index() as u32, Some(0.8))
             .with_repeat(PlaybackRepeat::Never),
-        BevyAnimationBinding::new("emote", nodes[7].index() as u32, Some(0.55))
+        BevyAnimationBinding::new("emote", nodes[8].index() as u32, Some(0.55))
             .with_repeat(PlaybackRepeat::Never),
+        BevyAnimationBinding::new("aim_overlay", nodes[9].index() as u32, Some(0.65)),
     ];
     BevyAnimationBridge {
         player_entity: None,
@@ -244,7 +281,34 @@ fn idle_clip(target: AnimationTargetId) -> AnimationClip {
     clip
 }
 
-fn locomotion_clip(target: AnimationTargetId) -> AnimationClip {
+fn walk_clip(target: AnimationTargetId) -> AnimationClip {
+    let mut clip = AnimationClip::default();
+    add_translation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::new(0.0, 0.0, 0.0)),
+            (0.18, Vec3::new(0.0, 0.12, 0.0)),
+            (0.36, Vec3::new(0.0, 0.0, 0.0)),
+            (0.54, Vec3::new(0.0, 0.12, 0.0)),
+            (0.72, Vec3::new(0.0, 0.0, 0.0)),
+        ],
+    );
+    add_scale_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::new(1.0, 1.0, 1.0)),
+            (0.18, Vec3::new(1.01, 0.97, 1.01)),
+            (0.36, Vec3::new(0.99, 1.03, 0.99)),
+            (0.54, Vec3::new(1.01, 0.97, 1.01)),
+            (0.72, Vec3::new(1.0, 1.0, 1.0)),
+        ],
+    );
+    clip
+}
+
+fn run_clip(target: AnimationTargetId) -> AnimationClip {
     let mut clip = AnimationClip::default();
     add_translation_curve(
         &mut clip,
@@ -375,6 +439,20 @@ fn emote_clip(target: AnimationTargetId) -> AnimationClip {
             (0.18, Quat::from_rotation_y(PI / 8.0)),
             (0.36, Quat::from_rotation_y(-PI / 8.0)),
             (0.55, Quat::IDENTITY),
+        ],
+    );
+    clip
+}
+
+fn aim_overlay_clip(target: AnimationTargetId) -> AnimationClip {
+    let mut clip = AnimationClip::default();
+    add_rotation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Quat::from_rotation_z(-0.10)),
+            (0.32, Quat::from_rotation_z(0.14)),
+            (0.65, Quat::from_rotation_z(-0.10)),
         ],
     );
     clip

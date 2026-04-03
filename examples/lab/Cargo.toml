@@ -14,6 +14,8 @@ bevy = { version = "0.18", features = ["bevy_remote", "serialize"] }
 bevy_brp_extras = { version = "0.19", optional = true }
 saddle-bevy-e2e = { git = "https://github.com/julien-blanchon/saddle-bevy-e2e", features = ["json"], optional = true }
 saddle-character-state-machine = { workspace = true }
+saddle-character-state-machine-example-support = { path = "../support" }
+saddle-pane = { workspace = true }
 
 [lints]
 workspace = true

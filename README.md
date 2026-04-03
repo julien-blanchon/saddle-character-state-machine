@@ -81,14 +81,18 @@ fn setup(
 | `CharacterAnimationFacts` | Generic inputs such as speed, grounded, vertical velocity, locomotion mode, wall contact, and inhibit flags |
 | `CharacterAnimationRequests` | One-frame action queue used by transitions with `ActionRequested(...)` guards |
 | `CharacterStateMachineRuntime` | BRP/debug-friendly runtime surface: current state, previous state, stack, current binding, pending request, state time, normalized time, and last transition trace |
-| `CharacterAnimationSelection` | Logical output surface: selected state, binding id, blend metadata, and sync hint |
+| `CharacterAnimationSelection` | Logical output surface: selected state, dominant binding id, weighted active bindings, blend metadata, and sync hint |
 | `BevyAnimationBridge` | Optional Bevy `AnimationPlayer` integration for `AnimationGraph` node playback |
+| `BlendTree1D` / `BlendTreeParameter` | Per-state 1D binding blends driven by generic animation facts such as speed or locomotion intensity |
+| `CharacterAnimationLayers` | Optional concurrent overlay bindings for upper-body aim, additive recoil, or other extra animation channels |
 | Messages | `StateEntered`, `StateExited`, `StatePushed`, `StatePopped`, `TransitionRejected`, `AnimationBindingMissing` |
 
 ## Supported Patterns
 
 - Locomotion selection from movement facts such as `speed`, `grounded`, and `vertical_velocity`
+- 1D locomotion blend trees that smoothly mix multiple bindings inside a single logical state
 - Temporary pushdown states like attack, reload, hit-react, or emote
+- Concurrent animation layers driven by extra binding inputs instead of hardcoding everything into the base state graph
 - Lightweight hierarchy through parent-state fallback chains
 - Transition guards with explicit priorities, minimum durations, exit windows, and interrupt rules
 - Logical binding output for 2D or sprite-driven consumers
@@ -118,8 +122,9 @@ app.add_plugins(CharacterStateMachinePlugin::always_on(Update));
 - The runtime is data-driven but intentionally small. `StateDefinition` and `TransitionDefinition` cover common production needs without becoming a full editor/runtime graph system.
 - `TransitionSource::State(parent_id)` plus `StateDefinition::with_parent(...)` gives lightweight hierarchy without a heavyweight statechart runtime.
 - `TransitionDefinition::push(...)` plus `PushConflictPolicy` covers stacking, replace-top, and reject behavior for temporary states.
-- `CharacterAnimationSelection` is always updated, even if you do not use `BevyAnimationBridge`. This is the main integration path for 2D or custom animation systems.
+- `CharacterAnimationSelection` is always updated, even if you do not use `BevyAnimationBridge`. `binding` remains the dominant logical binding for backwards-compatible consumers, while `active_bindings` exposes the full weighted playback plan for blend trees and layers.
 - Transition-specific blend overrides now flow through to `CharacterAnimationSelection`, and pop transitions restore preserved state time as a playback sync hint when the resumed state has duration data.
+- `CharacterAnimationLayers` is an optional component so games can drive upper-body or additive overlays without duplicating the base machine definition. The authored `AnimationGraph` still decides masking and additive-vs-override behavior.
 
 ## Current Limitations / Non-goals
 
@@ -127,6 +132,7 @@ app.add_plugins(CharacterStateMachinePlugin::always_on(Update));
 - No motion matching, IK, or root-motion extraction
 - No built-in sprite animation runtime; 2D integrations adapt `CharacterAnimationSelection`
 - Bevy playback crossfades are currently linear because `AnimationTransitions` only exposes duration-based fades. `BlendEasing` is preserved in config/output for future or custom adapters.
+- Layer masking stays consumer-authored in the Bevy `AnimationGraph`; the crate drives concurrent bindings but does not author skeletal mask graphs for you.
 - Hierarchy is a parent fallback chain, not a full orthogonal / parallel statechart runtime
 
 ## Examples
@@ -137,6 +143,8 @@ app.add_plugins(CharacterStateMachinePlugin::always_on(Update));
 | `locomotion_3d` | Programmatic 3D clips driven through `BevyAnimationBridge` | `cargo run -p saddle-character-state-machine-example-locomotion-3d` |
 | `sprite_2d` | 2D-friendly adapter using logical binding output instead of skeletal playback | `cargo run -p saddle-character-state-machine-example-sprite-2d` |
 | `stacked_actions` | Rich showcase with locomotion, jump, reload rejection, attack push, emote replace-top, and HUD diagnostics | `cargo run -p saddle-character-state-machine-example-stacked-actions` |
+
+Every standalone example now ships with a live `saddle-pane` panel so blend thresholds, locomotion values, jump timing, and layer weights can be tuned without recompiling.
 
 ## Workspace Lab
 

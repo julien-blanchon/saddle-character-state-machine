@@ -7,6 +7,8 @@ publish = false
 [dependencies]
 bevy = { workspace = true }
 saddle-character-state-machine = { workspace = true }
+saddle-character-state-machine-example-support = { path = "../support" }
+saddle-pane = { workspace = true }
 
 [lints]
 workspace = true

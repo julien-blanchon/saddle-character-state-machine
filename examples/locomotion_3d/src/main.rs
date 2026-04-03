@@ -1,6 +1,7 @@
 use saddle_character_state_machine_example_support as support;
 
 use bevy::prelude::*;
+use saddle_pane::prelude::*;
 use saddle_character_state_machine::*;
 
 #[derive(Component)]
@@ -14,11 +15,49 @@ struct JumpState {
     upward_time: f32,
 }
 
+#[derive(Resource, Pane)]
+#[pane(title = "Locomotion 3D")]
+struct LocomotionPane {
+    #[pane(tab = "Movement", slider, min = 0.0, max = 1.0, step = 0.05)]
+    walk_speed: f32,
+    #[pane(tab = "Movement", slider, min = 0.2, max = 1.4, step = 0.05)]
+    run_speed: f32,
+    #[pane(tab = "Movement", slider, min = 0.5, max = 4.0, step = 0.1)]
+    translation_speed: f32,
+    #[pane(tab = "Movement", slider, min = 1.0, max = 8.0, step = 0.1)]
+    jump_velocity: f32,
+    #[pane(tab = "Movement", slider, min = 0.0, max = 0.6, step = 0.02)]
+    jump_hold_seconds: f32,
+    #[pane(tab = "Movement", slider, min = 4.0, max = 24.0, step = 0.5)]
+    gravity: f32,
+    #[pane(tab = "Runtime", monitor)]
+    current_state: String,
+    #[pane(tab = "Runtime", monitor)]
+    active_bindings: String,
+}
+
+impl Default for LocomotionPane {
+    fn default() -> Self {
+        Self {
+            walk_speed: 0.55,
+            run_speed: 1.0,
+            translation_speed: 1.8,
+            jump_velocity: 4.6,
+            jump_hold_seconds: 0.24,
+            gravity: 16.0,
+            current_state: "Idle".into(),
+            active_bindings: "idle:1.00".into(),
+        }
+    }
+}
+
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins((DefaultPlugins, support::pane_plugins()))
         .add_plugins(CharacterStateMachinePlugin::always_on(Update))
         .insert_resource(JumpState::default())
+        .init_resource::<LocomotionPane>()
+        .register_pane::<LocomotionPane>()
         .add_systems(Startup, setup)
         .add_systems(Update, (control_character, update_hud))
         .run();
@@ -51,7 +90,7 @@ fn setup(
 
     commands.spawn((
         DemoHud,
-        Text::new("W: run | Space: jump"),
+        Text::new("W: walk | Shift: run | Space: jump"),
         Node {
             position_type: PositionType::Absolute,
             left: px(18.0),
@@ -72,32 +111,42 @@ fn control_character(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut jump_state: ResMut<JumpState>,
+    pane: Res<LocomotionPane>,
     mut query: Query<(&mut Transform, &mut CharacterAnimationFacts), With<DemoCharacter>>,
 ) {
     for (mut transform, mut facts) in &mut query {
         let moving = keyboard.pressed(KeyCode::KeyW);
-        facts.speed = if moving { 1.0 } else { 0.0 };
+        let sprinting = keyboard.pressed(KeyCode::ShiftLeft);
+        facts.speed = if moving {
+            if sprinting {
+                pane.run_speed
+            } else {
+                pane.walk_speed
+            }
+        } else {
+            0.0
+        };
         facts.locomotion_mode = if moving {
             LocomotionMode::Run
         } else {
             LocomotionMode::Idle
         };
         if moving {
-            transform.translation.x += time.delta_secs() * 1.8;
+            transform.translation.x += time.delta_secs() * pane.translation_speed;
         }
 
         if keyboard.just_pressed(KeyCode::Space) && facts.grounded {
             facts.grounded = false;
-            facts.vertical_velocity = 4.6;
-            jump_state.upward_time = 0.24;
+            facts.vertical_velocity = pane.jump_velocity;
+            jump_state.upward_time = pane.jump_hold_seconds;
         }
 
         if !facts.grounded {
             if jump_state.upward_time > 0.0 {
                 jump_state.upward_time -= time.delta_secs();
-                facts.vertical_velocity = 4.6;
+                facts.vertical_velocity = pane.jump_velocity;
             } else {
-                facts.vertical_velocity -= 16.0 * time.delta_secs();
+                facts.vertical_velocity -= pane.gravity * time.delta_secs();
             }
 
             transform.translation.y += facts.vertical_velocity * time.delta_secs();
@@ -113,10 +162,14 @@ fn control_character(
 }
 
 fn update_hud(
-    runtime: Single<&CharacterStateMachineRuntime, With<DemoCharacter>>,
+    runtime: Single<
+        (&CharacterStateMachineRuntime, &CharacterAnimationSelection),
+        With<DemoCharacter>,
+    >,
     mut text: Single<&mut Text, With<DemoHud>>,
+    mut pane: ResMut<LocomotionPane>,
 ) {
-    let runtime = *runtime;
+    let (runtime, selection) = *runtime;
     let current = runtime
         .current_state
         .as_ref()
@@ -129,8 +182,19 @@ fn update_hud(
         .collect::<Vec<_>>()
         .join(" -> ");
 
+    let active = selection
+        .active_bindings
+        .iter()
+        .map(|binding| format!("{}:{:.2}", binding.binding.0, binding.weight))
+        .collect::<Vec<_>>()
+        .join(", ");
+
     text.0 = format!(
-        "W: run | Space: jump\nstate: {current}\nstack: {stack}\nnormalized: {:.2}",
+        "W: walk | Shift: run | Space: jump\nstate: {current}\nstack: {stack}\nactive: {active}\nnormalized: {:.2}",
         runtime.normalized_time
     );
+
+    let pane = pane.bypass_change_detection();
+    pane.current_state = current.into();
+    pane.active_bindings = active;
 }

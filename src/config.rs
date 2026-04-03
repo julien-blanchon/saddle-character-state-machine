@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 
 use bevy::prelude::*;
 
-use crate::components::LocomotionMode;
+use crate::components::{CharacterAnimationFacts, LocomotionMode};
 
 macro_rules! define_id {
     ($name:ident) => {
@@ -95,6 +95,142 @@ impl Default for BlendDefinition {
             reset_on_entry: true,
             sync_to_source_time: false,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Reflect)]
+pub enum BlendTreeParameter {
+    Speed,
+    LocomotionIntensity,
+    VerticalVelocity,
+    MovementDirectionX,
+    MovementDirectionY,
+    FacingDirectionX,
+    AimDirectionX,
+}
+
+impl BlendTreeParameter {
+    pub fn sample(self, facts: &CharacterAnimationFacts) -> f32 {
+        match self {
+            Self::Speed => facts.speed,
+            Self::LocomotionIntensity => facts.locomotion_intensity,
+            Self::VerticalVelocity => facts.vertical_velocity,
+            Self::MovementDirectionX => facts.movement_direction.x,
+            Self::MovementDirectionY => facts.movement_direction.y,
+            Self::FacingDirectionX => facts.facing_direction.x,
+            Self::AimDirectionX => facts.aim_direction.x,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Reflect)]
+pub struct BlendTree1DPoint {
+    pub threshold: f32,
+    pub binding: CharacterAnimationBindingId,
+}
+
+impl BlendTree1DPoint {
+    pub fn new(threshold: f32, binding: impl Into<CharacterAnimationBindingId>) -> Self {
+        Self {
+            threshold,
+            binding: binding.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Reflect)]
+pub struct BlendTree1D {
+    pub parameter: BlendTreeParameter,
+    pub points: Vec<BlendTree1DPoint>,
+}
+
+impl BlendTree1D {
+    pub fn new(parameter: BlendTreeParameter) -> Self {
+        Self {
+            parameter,
+            points: Vec::new(),
+        }
+    }
+
+    pub fn with_point(
+        mut self,
+        threshold: f32,
+        binding: impl Into<CharacterAnimationBindingId>,
+    ) -> Self {
+        self.points.push(BlendTree1DPoint::new(threshold, binding));
+        self
+    }
+
+    pub fn evaluate(
+        &self,
+        facts: &CharacterAnimationFacts,
+    ) -> Vec<(CharacterAnimationBindingId, f32)> {
+        if self.points.is_empty() {
+            return Vec::new();
+        }
+
+        let mut points = self.points.clone();
+        points.sort_by(|left, right| left.threshold.total_cmp(&right.threshold));
+
+        if points.len() == 1 {
+            return vec![(points[0].binding.clone(), 1.0)];
+        }
+
+        let value = self.parameter.sample(facts);
+        if value <= points[0].threshold {
+            return vec![(points[0].binding.clone(), 1.0)];
+        }
+        if value >= points[points.len() - 1].threshold {
+            return vec![(points[points.len() - 1].binding.clone(), 1.0)];
+        }
+
+        for window in points.windows(2) {
+            let left = &window[0];
+            let right = &window[1];
+            if value < left.threshold || value > right.threshold {
+                continue;
+            }
+
+            let span = right.threshold - left.threshold;
+            if span.abs() <= f32::EPSILON {
+                return vec![(right.binding.clone(), 1.0)];
+            }
+
+            let t = ((value - left.threshold) / span).clamp(0.0, 1.0);
+            if left.binding == right.binding {
+                return vec![(left.binding.clone(), 1.0)];
+            }
+
+            return vec![(left.binding.clone(), 1.0 - t), (right.binding.clone(), t)];
+        }
+
+        vec![(points[points.len() - 1].binding.clone(), 1.0)]
+    }
+
+    fn validate(
+        &self,
+        state: &CharacterStateId,
+    ) -> Result<(), CharacterStateMachineValidationError> {
+        if self.points.is_empty() {
+            return Err(CharacterStateMachineValidationError::InvalidBlendTree {
+                state: state.clone(),
+                reason: "blend tree must declare at least one point".into(),
+            });
+        }
+
+        if self
+            .points
+            .iter()
+            .any(|point| !point.threshold.is_finite() || point.binding.0.is_empty())
+        {
+            return Err(CharacterStateMachineValidationError::InvalidBlendTree {
+                state: state.clone(),
+                reason: "blend tree points must use finite thresholds and non-empty bindings"
+                    .into(),
+            });
+        }
+
+        Ok(())
     }
 }
 
@@ -223,6 +359,7 @@ pub struct StateDefinition {
     pub parent: Option<CharacterStateId>,
     pub kind: StateKind,
     pub binding: Option<CharacterAnimationBindingId>,
+    pub blend_tree_1d: Option<BlendTree1D>,
     pub expected_duration_seconds: Option<f32>,
     pub minimum_duration_seconds: f32,
     pub interruptible: bool,
@@ -236,6 +373,7 @@ impl StateDefinition {
             parent: None,
             kind: StateKind::Persistent,
             binding: None,
+            blend_tree_1d: None,
             expected_duration_seconds: None,
             minimum_duration_seconds: 0.0,
             interruptible: true,
@@ -250,6 +388,11 @@ impl StateDefinition {
 
     pub fn with_binding(mut self, binding: impl Into<CharacterAnimationBindingId>) -> Self {
         self.binding = Some(binding.into());
+        self
+    }
+
+    pub fn with_blend_tree_1d(mut self, blend_tree_1d: BlendTree1D) -> Self {
+        self.blend_tree_1d = Some(blend_tree_1d);
         self
     }
 
@@ -480,6 +623,10 @@ impl CharacterStateMachineDefinition {
                 ));
             }
 
+            if let Some(blend_tree) = &state.blend_tree_1d {
+                blend_tree.validate(&state.id)?;
+            }
+
             if let Some(parent) = &state.parent
                 && self.state(parent).is_none()
             {
@@ -568,6 +715,10 @@ pub enum CharacterStateMachineValidationError {
     NoStates,
     DuplicateState(CharacterStateId),
     DuplicateTransition(CharacterTransitionId),
+    InvalidBlendTree {
+        state: CharacterStateId,
+        reason: String,
+    },
     MissingParent {
         state: CharacterStateId,
         parent: CharacterStateId,

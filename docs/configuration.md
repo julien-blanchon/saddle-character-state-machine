@@ -37,10 +37,37 @@ This crate is configured through `CharacterStateMachineDefinition`, `StateDefini
 | `parent` | `Option<CharacterStateId>` | `None` | Enables parent fallback transitions | Keep the tree shallow in v1 |
 | `kind` | `StateKind` | `Persistent` | Controls derived completion behavior | `Transient` + `expected_duration_seconds` can drive auto-pop transitions |
 | `binding` | `Option<CharacterAnimationBindingId>` | `None` | Logical animation binding output | If missing, the definition fallback binding is used when available |
+| `blend_tree_1d` | `Option<BlendTree1D>` | `None` | Expands the state into weighted base bindings instead of a single clip | Use this for idle/walk/run style locomotion inside one logical state |
 | `expected_duration_seconds` | `Option<f32>` | `None` | Duration hint for normalized time / completion fallback | Keep this aligned with real clip length when using exit windows or `AnimationFinished` |
 | `minimum_duration_seconds` | `f32` | `0.0` | Global floor before any outgoing transition may leave this state | Use for landing or jump-start readability |
 | `interruptible` | `bool` | `true` | Blocks external push/set transitions when `false` | Exact-state exit transitions can still run |
 | `resume_policy` | `ResumePolicy` | `PreserveTime` | Behavior when a popped state resumes | `ResetTime` is useful for states that should restart when uncovered |
+
+## `BlendTree1D`
+
+| Field | Type | Default | Effect | Notes |
+| --- | --- | --- | --- | --- |
+| `parameter` | `BlendTreeParameter` | required | Chooses which generic fact drives the 1D blend | `Speed` and `LocomotionIntensity` are the common locomotion choices |
+| `points` | `Vec<BlendTree1DPoint>` | `[]` | Ordered sample points used to compute 1-2 active bindings | Thresholds are sorted during evaluation |
+
+## `BlendTreeParameter`
+
+Supported built-in inputs:
+
+- `Speed`
+- `LocomotionIntensity`
+- `VerticalVelocity`
+- `MovementDirectionX`
+- `MovementDirectionY`
+- `FacingDirectionX`
+- `AimDirectionX`
+
+## `BlendTree1DPoint`
+
+| Field | Type | Default | Effect | Notes |
+| --- | --- | --- | --- | --- |
+| `threshold` | `f32` | required | Sample point along the chosen parameter axis | Use ascending locomotion thresholds such as `0.0`, `0.5`, `1.0` |
+| `binding` | `CharacterAnimationBindingId` | required | Binding activated at this point | Adjacent points are blended linearly |
 
 ## `TransitionDefinition`
 
@@ -75,6 +102,23 @@ This crate is configured through `CharacterStateMachineDefinition`, `StateDefini
 | `player_entity` | `Option<Entity>` | `None` | Animation target entity | `None` means the machine entity itself owns the `AnimationPlayer` |
 | `graph_handle` | `Handle<AnimationGraph>` | required | Graph inserted on the player entity when needed | The runtime does not author graphs for you |
 | `bindings` | `Vec<BevyAnimationBinding>` | `[]` | Logical binding id -> graph node mapping | Each logical state binding should have at most one Bevy binding entry |
+
+## `CharacterAnimationLayers`
+
+| Field | Type | Default | Effect | Notes |
+| --- | --- | --- | --- | --- |
+| `layers` | `Vec<CharacterAnimationLayer>` | `[]` | Optional concurrent overlay bindings appended after the base state selection | Useful for upper-body aim, recoil, breathing, or prop-hold layers |
+
+## `CharacterAnimationLayer`
+
+| Field | Type | Default | Effect | Notes |
+| --- | --- | --- | --- | --- |
+| `name` | `String` | required | Debug-friendly layer label | Appears in `CharacterAnimationSelection.active_bindings` |
+| `enabled` | `bool` | `true` | Enables or disables the layer | Disabled layers are ignored without removing the component entry |
+| `binding` | `CharacterAnimationBindingId` | required | Binding played for the layer | Must exist in the `BevyAnimationBridge` if you use Bevy playback |
+| `weight` | `f32` | `1.0` | Layer playback weight | Keep override layers in a sane range; additive behavior is still authored in the graph |
+| `mode` | `CharacterAnimationLayerMode` | `Override` | Consumer-facing intent for the layer | The authored `AnimationGraph` still decides actual additive masking behavior |
+| `sync_to_base_time` | `bool` | `false` | Seeks the layer using the base state's normalized time when possible | Good for overlays that should stay phase-aligned with locomotion |
 
 ## `BevyAnimationBinding`
 
