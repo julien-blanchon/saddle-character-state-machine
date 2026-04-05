@@ -13,8 +13,8 @@ use crate::components::{
 use crate::config::{CharacterStateMachineLibrary, StateDefinition};
 use crate::machine::{self, MachineEvent};
 use crate::messages::{
-    AnimationBindingMissing, StateEntered, StateExited, StatePopped, StatePushed,
-    TransitionRejected,
+    AnimationBindingMissing, AnimationEventFired, StateEntered, StateExited, StatePopped,
+    StatePushed, TransitionRejected,
 };
 
 pub(crate) fn activate_machines(
@@ -388,6 +388,50 @@ pub(crate) fn apply_animation_selection(
             && let Some(sync_normalized_time) = entry.sync_normalized_time
         {
             active_animation.seek_to(sync_normalized_time.clamp(0.0, 1.0) * duration_seconds);
+        }
+    }
+}
+
+pub(crate) fn fire_animation_events(
+    library: Res<CharacterStateMachineLibrary>,
+    mut machines: Query<(
+        Entity,
+        &CharacterStateMachine,
+        &mut CharacterStateMachineRuntime,
+    )>,
+    mut event_writer: MessageWriter<AnimationEventFired>,
+) {
+    for (entity, machine_component, mut runtime) in &mut machines {
+        let Some(definition) = library.get(&machine_component.definition_id) else {
+            continue;
+        };
+        let Some(state_id) = runtime.current_state.clone() else {
+            continue;
+        };
+        let Some(state) = definition.state(&state_id) else {
+            continue;
+        };
+        if state.events.is_empty() {
+            continue;
+        }
+
+        let previous = runtime.previous_normalized_time;
+        let current = runtime.normalized_time;
+
+        for (index, event) in state.events.iter().enumerate() {
+            if runtime.fired_event_indices.contains(&index) {
+                continue;
+            }
+            if previous < event.normalized_time && current >= event.normalized_time {
+                runtime.fired_event_indices.push(index);
+                event_writer.write(AnimationEventFired {
+                    entity,
+                    definition_id: machine_component.definition_id.clone(),
+                    state: state_id.clone(),
+                    event_id: event.id.clone(),
+                    normalized_time: event.normalized_time,
+                });
+            }
         }
     }
 }

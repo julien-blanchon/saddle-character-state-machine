@@ -6,6 +6,22 @@ The crate maps generic motion facts and action requests into logical animation s
 
 Use `CharacterStateMachinePlugin::always_on(Update)` for standalone examples and small tools. Use `CharacterStateMachinePlugin::new(...)` when you need explicit activate/deactivate schedules such as `OnEnter` / `OnExit`. Machines spawned after activation are initialized automatically on the next `GatherFacts` pass, so late-spawned characters do not need manual runtime setup.
 
+## Why This Crate?
+
+Bevy's built-in `AnimationGraph` handles low-level clip blending and skeletal masking, but it has no concept of game-level states, transitions, or pushdown stacks. On the other end, `bevy_animation_graph` provides a full visual editor with custom LERP nodes but brings significant complexity and editor coupling.
+
+This crate fills the gap — comparable in scope to Unity's Animator Controller or a simplified Unreal Animation Blueprint — by providing:
+
+- **Data-driven state graphs** defined in code (no external editor dependency)
+- **Pushdown stack semantics** for temporary interrupts (attack, hit-react, emote) with clean resume
+- **Guard-based transitions** with priority ranking, minimum durations, exit windows, and interrupt policies
+- **1D blend trees** for locomotion blending within a single logical state
+- **Concurrent animation layers** for upper-body overlays, additive recoil, etc.
+- **Dual output surface**: logical bindings for 2D/sprite consumers, plus optional `BevyAnimationBridge` for 3D skeletal playback
+- **DOT graph export** for state machine visualization and debugging
+
+The design stays intentionally below a full statechart runtime. If your game needs hierarchical parallel regions or a visual node editor, consider `bevy_animation_graph`. If you need a practical, code-first state machine that handles locomotion, actions, and layers without fighting an editor workflow, this crate is the right fit.
+
 ## Quick Start
 
 ```toml
@@ -143,6 +159,7 @@ app.add_plugins(CharacterStateMachinePlugin::always_on(Update));
 | `locomotion_3d` | Programmatic 3D clips driven through `BevyAnimationBridge` | `cargo run -p saddle-character-state-machine-example-locomotion-3d` |
 | `sprite_2d` | 2D-friendly adapter using logical binding output instead of skeletal playback | `cargo run -p saddle-character-state-machine-example-sprite-2d` |
 | `stacked_actions` | Rich showcase with locomotion, jump, reload rejection, attack push, emote replace-top, and HUD diagnostics | `cargo run -p saddle-character-state-machine-example-stacked-actions` |
+| `graph_preview` | 2D visual state graph with live state highlighting, pane-driven fact inputs, and DOT export | `cargo run -p saddle-character-state-machine-example-graph-preview` |
 
 Every standalone example now ships with a live `saddle-pane` panel so blend thresholds, locomotion values, jump timing, and layer weights can be tuned without recompiling.
 

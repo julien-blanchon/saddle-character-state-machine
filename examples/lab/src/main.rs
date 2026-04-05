@@ -11,8 +11,8 @@ use bevy::{
     animation::{AnimatedBy, AnimationTargetId, animated_field},
     prelude::*,
 };
-use saddle_pane::prelude::*;
 use saddle_character_state_machine::*;
+use saddle_pane::prelude::*;
 
 #[derive(Component)]
 struct LabCharacter;
@@ -23,6 +23,12 @@ struct LabOverlay;
 #[derive(Resource, Default)]
 struct AirState {
     airborne_time: f32,
+}
+
+#[derive(Resource, Default)]
+struct FiredEvents {
+    count: usize,
+    last_event_id: Option<String>,
 }
 
 #[derive(Resource, Pane)]
@@ -79,6 +85,7 @@ fn main() {
     #[cfg(feature = "e2e")]
     app.add_plugins(e2e::CharacterStateMachineLabE2EPlugin);
     app.insert_resource(AirState::default());
+    app.init_resource::<FiredEvents>();
     app.init_resource::<LabPane>();
     app.register_pane::<LabPane>();
     app.configure_sets(
@@ -97,6 +104,7 @@ fn main() {
     app.configure_sets(Update, saddle_bevy_e2e::E2ESet.before(LabSystems::Control));
     app.add_systems(Startup, setup);
     app.add_systems(Update, control_character.in_set(LabSystems::Control));
+    app.add_systems(Update, collect_animation_events.in_set(LabSystems::Overlay));
     app.add_systems(Update, update_overlay.in_set(LabSystems::Overlay));
 
     app.run();
@@ -217,9 +225,9 @@ fn control_character(
             LocomotionMode::Idle
         };
         if moving {
-            transform.translation.x =
-                (transform.translation.x + pane.translation_speed * time.delta_secs())
-                    .clamp(-4.0, 4.0);
+            transform.translation.x = (transform.translation.x
+                + pane.translation_speed * time.delta_secs())
+            .clamp(-4.0, 4.0);
         }
 
         if keyboard.just_pressed(KeyCode::KeyJ) {
@@ -256,12 +264,19 @@ fn control_character(
     }
 }
 
+fn collect_animation_events(
+    mut events: MessageReader<AnimationEventFired>,
+    mut fired: ResMut<FiredEvents>,
+) {
+    for event in events.read() {
+        fired.count += 1;
+        fired.last_event_id = Some(event.event_id.0.clone());
+    }
+}
+
 fn update_overlay(
     runtime: Single<
-        (
-            &CharacterStateMachineRuntime,
-            &CharacterAnimationSelection,
-        ),
+        (&CharacterStateMachineRuntime, &CharacterAnimationSelection),
         With<LabCharacter>,
     >,
     facts: Single<&CharacterAnimationFacts, With<LabCharacter>>,
@@ -347,7 +362,9 @@ fn build_definition() -> CharacterStateMachineDefinition {
             StateDefinition::new("Locomotion")
                 .with_parent("Grounded")
                 .with_binding("locomotion")
-                .with_expected_duration(0.65),
+                .with_expected_duration(0.65)
+                .with_event("footstep_left", 0.25)
+                .with_event("footstep_right", 0.75),
         )
         .add_state(
             StateDefinition::new("JumpStart")
@@ -482,9 +499,9 @@ fn idle_clip(target: AnimationTargetId) -> AnimationClip {
         &mut clip,
         target,
         &[
-            (0.0, Vec3::new(0.0, 0.0, 0.0)),
-            (0.55, Vec3::new(0.0, 0.08, 0.0)),
-            (1.1, Vec3::new(0.0, 0.0, 0.0)),
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.55, Vec3::new(0.0, 1.08, 0.0)),
+            (1.1, Vec3::new(0.0, 1.0, 0.0)),
         ],
     );
     clip
@@ -496,11 +513,11 @@ fn locomotion_clip(target: AnimationTargetId) -> AnimationClip {
         &mut clip,
         target,
         &[
-            (0.0, Vec3::new(0.0, 0.0, 0.0)),
-            (0.16, Vec3::new(0.0, 0.22, 0.0)),
-            (0.32, Vec3::new(0.0, 0.0, 0.0)),
-            (0.48, Vec3::new(0.0, 0.22, 0.0)),
-            (0.65, Vec3::new(0.0, 0.0, 0.0)),
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.16, Vec3::new(0.0, 1.22, 0.0)),
+            (0.32, Vec3::new(0.0, 1.0, 0.0)),
+            (0.48, Vec3::new(0.0, 1.22, 0.0)),
+            (0.65, Vec3::new(0.0, 1.0, 0.0)),
         ],
     );
     add_scale_curve(
@@ -523,9 +540,9 @@ fn jump_start_clip(target: AnimationTargetId) -> AnimationClip {
         &mut clip,
         target,
         &[
-            (0.0, Vec3::ZERO),
-            (0.12, Vec3::new(0.0, 0.3, 0.0)),
-            (0.22, Vec3::new(0.0, 0.6, -0.1)),
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.12, Vec3::new(0.0, 1.3, 0.0)),
+            (0.22, Vec3::new(0.0, 1.6, -0.1)),
         ],
     );
     add_rotation_curve(
@@ -542,9 +559,9 @@ fn airborne_clip(target: AnimationTargetId) -> AnimationClip {
         &mut clip,
         target,
         &[
-            (0.0, Vec3::new(0.0, 0.22, 0.0)),
-            (0.27, Vec3::new(0.0, -0.08, 0.0)),
-            (0.55, Vec3::new(0.0, 0.22, 0.0)),
+            (0.0, Vec3::new(0.0, 1.22, 0.0)),
+            (0.27, Vec3::new(0.0, 0.92, 0.0)),
+            (0.55, Vec3::new(0.0, 1.22, 0.0)),
         ],
     );
     add_scale_curve(
@@ -561,6 +578,14 @@ fn airborne_clip(target: AnimationTargetId) -> AnimationClip {
 
 fn land_clip(target: AnimationTargetId) -> AnimationClip {
     let mut clip = AnimationClip::default();
+    add_translation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.18, Vec3::new(0.0, 1.0, 0.0)),
+        ],
+    );
     add_scale_curve(
         &mut clip,
         target,
@@ -603,9 +628,9 @@ fn reload_clip(target: AnimationTargetId) -> AnimationClip {
         &mut clip,
         target,
         &[
-            (0.0, Vec3::ZERO),
-            (0.4, Vec3::new(0.1, 0.08, 0.0)),
-            (0.8, Vec3::ZERO),
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.4, Vec3::new(0.1, 1.08, 0.0)),
+            (0.8, Vec3::new(0.0, 1.0, 0.0)),
         ],
     );
     clip

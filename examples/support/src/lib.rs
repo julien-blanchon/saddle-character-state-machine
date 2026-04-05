@@ -157,10 +157,12 @@ pub fn setup_basic_3d_scene(
     materials: &mut Assets<StandardMaterial>,
 ) {
     commands.spawn((
+        Name::new("Camera"),
         Camera3d::default(),
         Transform::from_xyz(0.0, 4.8, 10.0).looking_at(Vec3::new(0.0, 1.4, 0.0), Vec3::Y),
     ));
     commands.spawn((
+        Name::new("Sun"),
         DirectionalLight {
             shadows_enabled: true,
             illuminance: 24_000.0,
@@ -169,6 +171,7 @@ pub fn setup_basic_3d_scene(
         Transform::from_xyz(4.0, 8.0, 6.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     commands.spawn((
+        Name::new("Ground"),
         Mesh3d(meshes.add(Plane3d::default().mesh().size(24.0, 24.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.18, 0.20, 0.18),
@@ -273,9 +276,9 @@ fn idle_clip(target: AnimationTargetId) -> AnimationClip {
         &mut clip,
         target,
         &[
-            (0.0, Vec3::new(0.0, 0.0, 0.0)),
-            (0.55, Vec3::new(0.0, 0.08, 0.0)),
-            (1.1, Vec3::new(0.0, 0.0, 0.0)),
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.55, Vec3::new(0.0, 1.08, 0.0)),
+            (1.1, Vec3::new(0.0, 1.0, 0.0)),
         ],
     );
     clip
@@ -287,11 +290,11 @@ fn walk_clip(target: AnimationTargetId) -> AnimationClip {
         &mut clip,
         target,
         &[
-            (0.0, Vec3::new(0.0, 0.0, 0.0)),
-            (0.18, Vec3::new(0.0, 0.12, 0.0)),
-            (0.36, Vec3::new(0.0, 0.0, 0.0)),
-            (0.54, Vec3::new(0.0, 0.12, 0.0)),
-            (0.72, Vec3::new(0.0, 0.0, 0.0)),
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.18, Vec3::new(0.0, 1.12, 0.0)),
+            (0.36, Vec3::new(0.0, 1.0, 0.0)),
+            (0.54, Vec3::new(0.0, 1.12, 0.0)),
+            (0.72, Vec3::new(0.0, 1.0, 0.0)),
         ],
     );
     add_scale_curve(
@@ -314,11 +317,11 @@ fn run_clip(target: AnimationTargetId) -> AnimationClip {
         &mut clip,
         target,
         &[
-            (0.0, Vec3::new(0.0, 0.0, 0.0)),
-            (0.16, Vec3::new(0.0, 0.22, 0.0)),
-            (0.32, Vec3::new(0.0, 0.0, 0.0)),
-            (0.48, Vec3::new(0.0, 0.22, 0.0)),
-            (0.65, Vec3::new(0.0, 0.0, 0.0)),
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.16, Vec3::new(0.0, 1.22, 0.0)),
+            (0.32, Vec3::new(0.0, 1.0, 0.0)),
+            (0.48, Vec3::new(0.0, 1.22, 0.0)),
+            (0.65, Vec3::new(0.0, 1.0, 0.0)),
         ],
     );
     add_scale_curve(
@@ -341,9 +344,9 @@ fn jump_start_clip(target: AnimationTargetId) -> AnimationClip {
         &mut clip,
         target,
         &[
-            (0.0, Vec3::ZERO),
-            (0.12, Vec3::new(0.0, 0.3, 0.0)),
-            (0.22, Vec3::new(0.0, 0.6, -0.1)),
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.12, Vec3::new(0.0, 1.3, 0.0)),
+            (0.22, Vec3::new(0.0, 1.6, -0.1)),
         ],
     );
     add_rotation_curve(
@@ -360,9 +363,9 @@ fn airborne_clip(target: AnimationTargetId) -> AnimationClip {
         &mut clip,
         target,
         &[
-            (0.0, Vec3::new(0.0, 0.22, 0.0)),
-            (0.27, Vec3::new(0.0, -0.08, 0.0)),
-            (0.55, Vec3::new(0.0, 0.22, 0.0)),
+            (0.0, Vec3::new(0.0, 1.22, 0.0)),
+            (0.27, Vec3::new(0.0, 0.92, 0.0)),
+            (0.55, Vec3::new(0.0, 1.22, 0.0)),
         ],
     );
     add_scale_curve(
@@ -379,6 +382,14 @@ fn airborne_clip(target: AnimationTargetId) -> AnimationClip {
 
 fn land_clip(target: AnimationTargetId) -> AnimationClip {
     let mut clip = AnimationClip::default();
+    add_translation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.18, Vec3::new(0.0, 1.0, 0.0)),
+        ],
+    );
     add_scale_curve(
         &mut clip,
         target,
@@ -421,9 +432,9 @@ fn reload_clip(target: AnimationTargetId) -> AnimationClip {
         &mut clip,
         target,
         &[
-            (0.0, Vec3::ZERO),
-            (0.4, Vec3::new(0.1, 0.08, 0.0)),
-            (0.8, Vec3::ZERO),
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.4, Vec3::new(0.1, 1.08, 0.0)),
+            (0.8, Vec3::new(0.0, 1.0, 0.0)),
         ],
     );
     clip

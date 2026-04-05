@@ -51,6 +51,10 @@ pub struct CharacterAnimationFacts {
     pub exit_window_open: bool,
     pub animation_locked: bool,
     pub inhibit_flags: Vec<String>,
+    /// Generic tag-based flags for custom transition conditions.
+    /// Use `TransitionCondition::CustomFlag("tag")` / `CustomFlagMissing("tag")` to guard
+    /// transitions based on game-specific state that doesn't fit the built-in fact fields.
+    pub custom_flags: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Reflect)]
@@ -156,6 +160,8 @@ pub struct CharacterStateMachineRuntime {
     pub machine_time_seconds: f32,
     pub generation: u64,
     pub last_transition: Option<TransitionDecisionTrace>,
+    pub(crate) previous_normalized_time: f32,
+    pub(crate) fired_event_indices: Vec<usize>,
 }
 
 impl CharacterStateMachineRuntime {

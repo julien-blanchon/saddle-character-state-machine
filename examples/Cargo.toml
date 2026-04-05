@@ -5,6 +5,7 @@ members = [
     "locomotion_3d",
     "sprite_2d",
     "stacked_actions",
+    "graph_preview",
     "lab",
 ]
 resolver = "3"

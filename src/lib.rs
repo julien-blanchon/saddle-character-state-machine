@@ -16,17 +16,17 @@ pub use components::{
     TransitionOutcome, TransitionRejectionReason,
 };
 pub use config::{
-    BlendDefinition, BlendEasing, BlendTree1D, BlendTree1DPoint, BlendTreeParameter,
-    CharacterActionId, CharacterAnimationBindingId, CharacterStateId,
-    CharacterStateMachineDefinition, CharacterStateMachineDefinitionId,
+    AnimationEventDefinition, AnimationEventId, BlendDefinition, BlendEasing, BlendTree1D,
+    BlendTree1DPoint, BlendTreeParameter, CharacterActionId, CharacterAnimationBindingId,
+    CharacterStateId, CharacterStateMachineDefinition, CharacterStateMachineDefinitionId,
     CharacterStateMachineLibrary, CharacterStateMachineValidationError, CharacterTransitionId,
     NormalizedTimeWindow, PushConflictPolicy, ResumePolicy, StateDefinition, StateKind,
     TransitionCondition, TransitionDefinition, TransitionGuard, TransitionOperation,
     TransitionSource,
 };
 pub use messages::{
-    AnimationBindingMissing, StateEntered, StateExited, StatePopped, StatePushed,
-    TransitionRejected,
+    AnimationBindingMissing, AnimationEventFired, StateEntered, StateExited, StatePopped,
+    StatePushed, TransitionRejected,
 };
 
 use bevy::{
@@ -79,6 +79,9 @@ impl Plugin for CharacterStateMachinePlugin {
             .add_message::<StatePopped>()
             .add_message::<TransitionRejected>()
             .add_message::<AnimationBindingMissing>()
+            .add_message::<AnimationEventFired>()
+            .register_type::<AnimationEventDefinition>()
+            .register_type::<AnimationEventId>()
             .register_type::<ActiveStateFrame>()
             .register_type::<BevyAnimationBinding>()
             .register_type::<BevyAnimationBridge>()
@@ -131,6 +134,7 @@ impl Plugin for CharacterStateMachinePlugin {
                     systems::advance_machines
                         .in_set(CharacterStateMachineSystems::ResolveTransitions),
                     (
+                        systems::fire_animation_events,
                         systems::expand_animation_selection,
                         systems::apply_animation_selection,
                     )

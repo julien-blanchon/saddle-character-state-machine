@@ -1,8 +1,8 @@
 use saddle_character_state_machine_example_support as support;
 
 use bevy::prelude::*;
-use saddle_pane::prelude::*;
 use saddle_character_state_machine::*;
+use saddle_pane::prelude::*;
 
 #[derive(Component)]
 struct DemoSprite;
@@ -143,7 +143,11 @@ fn drive_demo(
     let previous_phase = previous_elapsed % cycle_seconds;
 
     for (mut facts, mut requests) in &mut query {
-        facts.speed = if phase < move_start { 0.0 } else { pane.move_speed };
+        facts.speed = if phase < move_start {
+            0.0
+        } else {
+            pane.move_speed
+        };
         facts.locomotion_mode = if facts.speed > 0.0 {
             LocomotionMode::Run
         } else {

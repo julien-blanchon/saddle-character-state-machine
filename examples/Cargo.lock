@@ -4959,6 +4959,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "saddle-character-state-machine-example-graph-preview"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "saddle-character-state-machine",
+ "saddle-character-state-machine-example-support",
+ "saddle-pane",
+]
+
+[[package]]
 name = "saddle-character-state-machine-example-locomotion-3d"
 version = "0.1.0"
 dependencies = [

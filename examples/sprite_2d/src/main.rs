@@ -1,8 +1,8 @@
 use saddle_character_state_machine_example_support as support;
 
 use bevy::prelude::*;
-use saddle_pane::prelude::*;
 use saddle_character_state_machine::*;
+use saddle_pane::prelude::*;
 
 #[derive(Component)]
 struct PlatformerSprite;
@@ -175,8 +175,9 @@ fn drive_platformer(
         let axis = (keyboard.pressed(KeyCode::ArrowRight) as i8
             - keyboard.pressed(KeyCode::ArrowLeft) as i8) as f32;
         facts.speed = axis.abs();
-        transform.translation.x =
-            (transform.translation.x + axis * pane.move_speed * time.delta_secs()).clamp(-280.0, 280.0);
+        transform.translation.x = (transform.translation.x
+            + axis * pane.move_speed * time.delta_secs())
+        .clamp(-280.0, 280.0);
 
         if keyboard.just_pressed(KeyCode::Space) && facts.grounded {
             facts.grounded = false;

@@ -42,6 +42,7 @@ define_id!(CharacterStateId);
 define_id!(CharacterActionId);
 define_id!(CharacterAnimationBindingId);
 define_id!(CharacterTransitionId);
+define_id!(AnimationEventId);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum StateKind {
@@ -313,6 +314,11 @@ pub enum TransitionCondition {
     ActionRequested(CharacterActionId),
     InhibitFlagPresent(String),
     InhibitFlagMissing(String),
+    /// Custom tag-based condition evaluated against `CharacterAnimationFacts::custom_flags`.
+    /// Returns true when the named tag is present in the custom flags set.
+    CustomFlag(String),
+    /// Returns true when the named tag is absent from `CharacterAnimationFacts::custom_flags`.
+    CustomFlagMissing(String),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Reflect)]
@@ -354,6 +360,21 @@ impl TransitionGuard {
 }
 
 #[derive(Clone, Debug, PartialEq, Reflect)]
+pub struct AnimationEventDefinition {
+    pub id: AnimationEventId,
+    pub normalized_time: f32,
+}
+
+impl AnimationEventDefinition {
+    pub fn new(id: impl Into<AnimationEventId>, normalized_time: f32) -> Self {
+        Self {
+            id: id.into(),
+            normalized_time,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Reflect)]
 pub struct StateDefinition {
     pub id: CharacterStateId,
     pub parent: Option<CharacterStateId>,
@@ -364,6 +385,7 @@ pub struct StateDefinition {
     pub minimum_duration_seconds: f32,
     pub interruptible: bool,
     pub resume_policy: ResumePolicy,
+    pub events: Vec<AnimationEventDefinition>,
 }
 
 impl StateDefinition {
@@ -378,6 +400,7 @@ impl StateDefinition {
             minimum_duration_seconds: 0.0,
             interruptible: true,
             resume_policy: ResumePolicy::PreserveTime,
+            events: Vec::new(),
         }
     }
 
@@ -418,6 +441,12 @@ impl StateDefinition {
 
     pub fn with_resume_policy(mut self, policy: ResumePolicy) -> Self {
         self.resume_policy = policy;
+        self
+    }
+
+    pub fn with_event(mut self, id: impl Into<AnimationEventId>, normalized_time: f32) -> Self {
+        self.events
+            .push(AnimationEventDefinition::new(id, normalized_time));
         self
     }
 }
@@ -610,6 +639,88 @@ impl CharacterStateMachineDefinition {
         (fallback_binding, true)
     }
 
+    /// Returns all state ids defined in this machine.
+    pub fn state_ids(&self) -> Vec<&CharacterStateId> {
+        self.states.iter().map(|state| &state.id).collect()
+    }
+
+    /// Returns all transition ids defined in this machine.
+    pub fn transition_ids(&self) -> Vec<&CharacterTransitionId> {
+        self.transitions
+            .iter()
+            .map(|transition| &transition.id)
+            .collect()
+    }
+
+    /// Generates a DOT graph representation for debug visualization.
+    ///
+    /// The output can be rendered with Graphviz or pasted into an online DOT viewer.
+    pub fn dot_graph(&self) -> String {
+        let mut lines = Vec::new();
+        lines.push(format!("digraph \"{}\" {{", self.id.0));
+        lines.push("  rankdir=LR;".into());
+        lines.push("  node [shape=box, style=rounded];".into());
+
+        for state in &self.states {
+            let label = if let Some(binding) = &state.binding {
+                format!("{}\\n[{}]", state.id.0, binding.0)
+            } else if state.blend_tree_1d.is_some() {
+                format!("{}\\n[blend tree]", state.id.0)
+            } else {
+                state.id.0.clone()
+            };
+            let style = match state.kind {
+                StateKind::Transient => "shape=box, style=\"rounded,dashed\"",
+                StateKind::Persistent => "shape=box, style=rounded",
+            };
+            lines.push(format!(
+                "  \"{}\" [{style}, label=\"{label}\"];",
+                state.id.0
+            ));
+        }
+
+        if let Some(initial) = self.state(&self.initial_state) {
+            lines.push("  __start [shape=point, width=0.2];".to_string());
+            lines.push(format!("  __start -> \"{}\";", initial.id.0));
+        }
+
+        for transition in &self.transitions {
+            let source_label = match &transition.source {
+                TransitionSource::Current => "*current*".into(),
+                TransitionSource::Any => "*any*".into(),
+                TransitionSource::State(state) => state.0.clone(),
+            };
+            let target_label = transition
+                .target
+                .as_ref()
+                .map(|target| target.0.clone())
+                .unwrap_or_else(|| "[pop]".into());
+
+            let op = match transition.operation {
+                TransitionOperation::Set => "",
+                TransitionOperation::Push => " (push)",
+                TransitionOperation::Pop => " (pop)",
+            };
+            let edge_label = format!("{}{op}", transition.id.0);
+
+            match transition.operation {
+                TransitionOperation::Pop => {
+                    lines.push(format!(
+                        "  \"{source_label}\" -> \"{source_label}\" [label=\"{edge_label}\", style=dotted];",
+                    ));
+                }
+                _ => {
+                    lines.push(format!(
+                        "  \"{source_label}\" -> \"{target_label}\" [label=\"{edge_label}\"];",
+                    ));
+                }
+            }
+        }
+
+        lines.push("}".into());
+        lines.join("\n")
+    }
+
     pub fn validate(&self) -> Result<(), CharacterStateMachineValidationError> {
         if self.states.is_empty() {
             return Err(CharacterStateMachineValidationError::NoStates);
@@ -734,3 +845,35 @@ pub enum CharacterStateMachineValidationError {
         target: CharacterStateId,
     },
 }
+
+impl std::fmt::Display for CharacterStateMachineValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoStates => write!(f, "definition has no states"),
+            Self::DuplicateState(id) => write!(f, "duplicate state '{id}'"),
+            Self::DuplicateTransition(id) => write!(f, "duplicate transition '{id}'"),
+            Self::InvalidBlendTree { state, reason } => {
+                write!(f, "invalid blend tree on state '{state}': {reason}")
+            }
+            Self::MissingParent { state, parent } => {
+                write!(f, "state '{state}' references missing parent '{parent}'")
+            }
+            Self::MissingInitialState(id) => write!(f, "missing initial state '{id}'"),
+            Self::MissingFallbackState(id) => write!(f, "missing fallback state '{id}'"),
+            Self::MissingTransitionSource { transition, source } => {
+                write!(
+                    f,
+                    "transition '{transition}' references missing source state '{source}'"
+                )
+            }
+            Self::MissingTransitionTarget { transition, target } => {
+                write!(
+                    f,
+                    "transition '{transition}' references missing target state '{target}'"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for CharacterStateMachineValidationError {}

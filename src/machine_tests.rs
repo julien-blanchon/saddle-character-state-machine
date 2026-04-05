@@ -388,3 +388,108 @@ fn pop_resumes_previous_state_time_for_playback_sync() {
         "unexpected resumed time: {resumed_time}"
     );
 }
+
+#[test]
+fn state_ids_returns_all_defined_states() {
+    let definition = make_definition();
+    let ids: Vec<&str> = definition
+        .state_ids()
+        .iter()
+        .map(|id| id.0.as_str())
+        .collect();
+    assert!(ids.contains(&"Idle"));
+    assert!(ids.contains(&"Locomotion"));
+    assert!(ids.contains(&"Attack"));
+    assert!(ids.contains(&"Reload"));
+    assert!(ids.contains(&"JumpStart"));
+    assert!(ids.contains(&"Airborne"));
+    assert!(ids.contains(&"Land"));
+    assert!(ids.contains(&"Grounded"));
+    assert_eq!(ids.len(), 8);
+}
+
+#[test]
+fn transition_ids_returns_all_defined_transitions() {
+    let definition = make_definition();
+    let ids: Vec<&str> = definition
+        .transition_ids()
+        .iter()
+        .map(|id| id.0.as_str())
+        .collect();
+    assert!(ids.contains(&"idle_to_locomotion"));
+    assert!(ids.contains(&"attack_push"));
+    assert!(ids.contains(&"attack_complete"));
+    assert_eq!(ids.len(), 10);
+}
+
+#[test]
+fn dot_graph_contains_states_and_transitions() {
+    let definition = make_definition();
+    let dot = definition.dot_graph();
+    assert!(dot.contains("digraph \"humanoid\""));
+    assert!(dot.contains("\"Idle\""));
+    assert!(dot.contains("\"Attack\""));
+    assert!(dot.contains("idle_to_locomotion"));
+    assert!(dot.contains("__start"));
+}
+
+#[test]
+fn validation_error_display_is_human_readable() {
+    use crate::config::CharacterStateMachineValidationError;
+    let error = CharacterStateMachineValidationError::NoStates;
+    assert_eq!(error.to_string(), "definition has no states");
+
+    let error = CharacterStateMachineValidationError::DuplicateState("Idle".into());
+    assert_eq!(error.to_string(), "duplicate state 'Idle'");
+
+    let error = CharacterStateMachineValidationError::MissingInitialState("Run".into());
+    assert_eq!(error.to_string(), "missing initial state 'Run'");
+}
+
+#[test]
+fn custom_flag_condition_evaluates_correctly() {
+    let definition = CharacterStateMachineDefinition::new("custom_flags", "Idle")
+        .add_state(StateDefinition::new("Idle").with_binding("idle"))
+        .add_state(StateDefinition::new("Special").with_binding("special"))
+        .add_transition(
+            TransitionDefinition::switch("idle_to_special", "Idle", "Special")
+                .when(TransitionCondition::CustomFlag("powered_up".into())),
+        )
+        .add_transition(
+            TransitionDefinition::switch("special_to_idle", "Special", "Idle")
+                .when(TransitionCondition::CustomFlagMissing("powered_up".into())),
+        );
+
+    let mut runtime = CharacterStateMachineRuntime::default();
+    let mut selection = CharacterAnimationSelection::default();
+    initialize_machine(&definition, &mut runtime, &mut selection).unwrap();
+
+    // Without the custom flag, no transition
+    let facts = CharacterAnimationFacts::default();
+    advance_machine(
+        &definition,
+        &mut runtime,
+        &facts,
+        None,
+        0.016,
+        &mut selection,
+    )
+    .unwrap();
+    assert_eq!(runtime.current_state.as_ref().unwrap().0, "Idle");
+
+    // With the custom flag, transition fires
+    let facts = CharacterAnimationFacts {
+        custom_flags: vec!["powered_up".into()],
+        ..Default::default()
+    };
+    advance_machine(
+        &definition,
+        &mut runtime,
+        &facts,
+        None,
+        0.016,
+        &mut selection,
+    )
+    .unwrap();
+    assert_eq!(runtime.current_state.as_ref().unwrap().0, "Special");
+}

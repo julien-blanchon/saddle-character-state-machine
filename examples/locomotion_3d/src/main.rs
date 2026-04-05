@@ -21,6 +21,12 @@ struct JumpState {
     upward_time: f32,
 }
 
+#[derive(Resource, Default)]
+struct LastAnimationEvent {
+    text: String,
+    cooldown: f32,
+}
+
 #[derive(Resource, Pane)]
 #[pane(title = "Locomotion 3D")]
 struct LocomotionPane {
@@ -80,7 +86,9 @@ fn build_locomotion_definition() -> CharacterStateMachineDefinition {
                         .with_point(0.25, "walk")
                         .with_point(1.0, "run"),
                 )
-                .with_expected_duration(0.65),
+                .with_expected_duration(0.65)
+                .with_event("footstep_left", 0.25)
+                .with_event("footstep_right", 0.75),
         )
         // -- Airborne states --
         .add_state(
@@ -232,10 +240,19 @@ fn main() {
         .add_plugins((DefaultPlugins, support::pane_plugins()))
         .add_plugins(CharacterStateMachinePlugin::always_on(Update))
         .insert_resource(JumpState::default())
+        .insert_resource(LastAnimationEvent::default())
         .init_resource::<LocomotionPane>()
         .register_pane::<LocomotionPane>()
         .add_systems(Startup, setup)
-        .add_systems(Update, (control_character, update_hud))
+        .add_systems(
+            Update,
+            (
+                control_character,
+                observe_animation_events,
+                color_capsule_by_state,
+                update_hud,
+            ),
+        )
         .run();
 }
 
@@ -249,10 +266,12 @@ fn setup(
 ) {
     // -- 3D scene: camera, light, ground --
     commands.spawn((
+        Name::new("Camera"),
         Camera3d::default(),
         Transform::from_xyz(0.0, 4.8, 10.0).looking_at(Vec3::new(0.0, 1.4, 0.0), Vec3::Y),
     ));
     commands.spawn((
+        Name::new("Sun"),
         DirectionalLight {
             shadows_enabled: true,
             illuminance: 24_000.0,
@@ -261,6 +280,7 @@ fn setup(
         Transform::from_xyz(4.0, 8.0, 6.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     commands.spawn((
+        Name::new("Ground"),
         Mesh3d(meshes.add(Plane3d::default().mesh().size(24.0, 24.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.18, 0.20, 0.18),
@@ -270,9 +290,7 @@ fn setup(
     ));
 
     // -- Register the state machine definition --
-    let definition_id = library
-        .register(build_locomotion_definition())
-        .unwrap();
+    let definition_id = library.register(build_locomotion_definition()).unwrap();
     let bridge = build_locomotion_bridge(&mut animations, &mut graphs);
 
     // -- Spawn the character entity with state machine + animation components --
@@ -311,11 +329,12 @@ fn setup(
 
     commands.spawn((
         DemoHud,
-        Text::new("W: walk | Shift: run | Space: jump"),
+        Text::new("W: walk | Shift+W: run | Space: jump | J: attack | R: reload | E: emote"),
         Node {
             position_type: PositionType::Absolute,
             left: px(18.0),
             top: px(18.0),
+            width: px(440.0),
             padding: UiRect::all(px(12.0)),
             ..default()
         },
@@ -333,9 +352,16 @@ fn control_character(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut jump_state: ResMut<JumpState>,
     pane: Res<LocomotionPane>,
-    mut query: Query<(&mut Transform, &mut CharacterAnimationFacts), With<DemoCharacter>>,
+    mut query: Query<
+        (
+            &mut Transform,
+            &mut CharacterAnimationFacts,
+            &mut CharacterAnimationRequests,
+        ),
+        With<DemoCharacter>,
+    >,
 ) {
-    for (mut transform, mut facts) in &mut query {
+    for (mut transform, mut facts, mut requests) in &mut query {
         let moving = keyboard.pressed(KeyCode::KeyW);
         let sprinting = keyboard.pressed(KeyCode::ShiftLeft);
         facts.speed = if moving {
@@ -354,6 +380,16 @@ fn control_character(
         };
         if moving {
             transform.translation.x += time.delta_secs() * pane.translation_speed;
+        }
+
+        if keyboard.just_pressed(KeyCode::KeyJ) {
+            requests.push("attack");
+        }
+        if keyboard.just_pressed(KeyCode::KeyR) {
+            requests.push("reload");
+        }
+        if keyboard.just_pressed(KeyCode::KeyE) {
+            requests.push("emote");
         }
 
         if keyboard.just_pressed(KeyCode::Space) && facts.grounded {
@@ -382,6 +418,48 @@ fn control_character(
     }
 }
 
+fn observe_animation_events(
+    time: Res<Time>,
+    mut last_event: ResMut<LastAnimationEvent>,
+    mut events: MessageReader<AnimationEventFired>,
+) {
+    last_event.cooldown = (last_event.cooldown - time.delta_secs()).max(0.0);
+    for event in events.read() {
+        last_event.text = format!("{} @ {:.2}", event.event_id.0, event.normalized_time);
+        last_event.cooldown = 0.5;
+    }
+    if last_event.cooldown <= 0.0 {
+        last_event.text.clear();
+    }
+}
+
+fn color_capsule_by_state(
+    machines: Query<(&CharacterStateMachineRuntime, &Children), With<DemoCharacter>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    meshes: Query<&MeshMaterial3d<StandardMaterial>>,
+) {
+    for (runtime, children) in &machines {
+        let state_color = match runtime.current_state.as_ref().map(|state| state.0.as_str()) {
+            Some("Idle") => Color::srgb(0.82, 0.47, 0.24),
+            Some("Locomotion") => Color::srgb(0.32, 0.78, 0.46),
+            Some("JumpStart") => Color::srgb(0.97, 0.76, 0.25),
+            Some("Airborne") => Color::srgb(0.98, 0.56, 0.28),
+            Some("Land") => Color::srgb(0.73, 0.86, 0.95),
+            Some("Attack") => Color::srgb(0.90, 0.22, 0.22),
+            Some("Reload") => Color::srgb(0.55, 0.33, 0.80),
+            Some("Emote") => Color::srgb(0.95, 0.60, 0.85),
+            _ => Color::srgb(0.82, 0.47, 0.24),
+        };
+        for child in children.iter() {
+            if let Ok(mat_handle) = meshes.get(child)
+                && let Some(material) = materials.get_mut(&mat_handle.0)
+            {
+                material.base_color = state_color;
+            }
+        }
+    }
+}
+
 fn update_hud(
     runtime: Single<
         (&CharacterStateMachineRuntime, &CharacterAnimationSelection),
@@ -389,6 +467,7 @@ fn update_hud(
     >,
     mut text: Single<&mut Text, With<DemoHud>>,
     mut pane: ResMut<LocomotionPane>,
+    last_event: Res<LastAnimationEvent>,
 ) {
     let (runtime, selection) = *runtime;
     let current = runtime
@@ -410,8 +489,14 @@ fn update_hud(
         .collect::<Vec<_>>()
         .join(", ");
 
+    let event_line = if last_event.text.is_empty() {
+        String::new()
+    } else {
+        format!("\nevent: {}", last_event.text)
+    };
+
     text.0 = format!(
-        "W: walk | Shift: run | Space: jump\nstate: {current}\nstack: {stack}\nactive: {active}\nnormalized: {:.2}",
+        "W: walk | Shift+W: run | Space: jump | J: attack | R: reload | E: emote\nstate: {current}\nstack: {stack}\nactive: {active}\nnormalized: {:.2}{event_line}",
         runtime.normalized_time
     );
 
@@ -426,129 +511,194 @@ fn update_hud(
 
 fn idle_clip(target: AnimationTargetId) -> AnimationClip {
     let mut clip = AnimationClip::default();
-    add_translation_curve(&mut clip, target, &[
-        (0.0, Vec3::ZERO),
-        (0.55, Vec3::new(0.0, 0.08, 0.0)),
-        (1.1, Vec3::ZERO),
-    ]);
+    add_translation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.55, Vec3::new(0.0, 1.08, 0.0)),
+            (1.1, Vec3::new(0.0, 1.0, 0.0)),
+        ],
+    );
     clip
 }
 
 fn walk_clip(target: AnimationTargetId) -> AnimationClip {
     let mut clip = AnimationClip::default();
-    add_translation_curve(&mut clip, target, &[
-        (0.0, Vec3::ZERO),
-        (0.18, Vec3::new(0.0, 0.12, 0.0)),
-        (0.36, Vec3::ZERO),
-        (0.54, Vec3::new(0.0, 0.12, 0.0)),
-        (0.72, Vec3::ZERO),
-    ]);
-    add_scale_curve(&mut clip, target, &[
-        (0.0, Vec3::ONE),
-        (0.18, Vec3::new(1.01, 0.97, 1.01)),
-        (0.36, Vec3::new(0.99, 1.03, 0.99)),
-        (0.54, Vec3::new(1.01, 0.97, 1.01)),
-        (0.72, Vec3::ONE),
-    ]);
+    add_translation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.18, Vec3::new(0.0, 1.12, 0.0)),
+            (0.36, Vec3::new(0.0, 1.0, 0.0)),
+            (0.54, Vec3::new(0.0, 1.12, 0.0)),
+            (0.72, Vec3::new(0.0, 1.0, 0.0)),
+        ],
+    );
+    add_scale_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::ONE),
+            (0.18, Vec3::new(1.01, 0.97, 1.01)),
+            (0.36, Vec3::new(0.99, 1.03, 0.99)),
+            (0.54, Vec3::new(1.01, 0.97, 1.01)),
+            (0.72, Vec3::ONE),
+        ],
+    );
     clip
 }
 
 fn run_clip(target: AnimationTargetId) -> AnimationClip {
     let mut clip = AnimationClip::default();
-    add_translation_curve(&mut clip, target, &[
-        (0.0, Vec3::ZERO),
-        (0.16, Vec3::new(0.0, 0.22, 0.0)),
-        (0.32, Vec3::ZERO),
-        (0.48, Vec3::new(0.0, 0.22, 0.0)),
-        (0.65, Vec3::ZERO),
-    ]);
-    add_scale_curve(&mut clip, target, &[
-        (0.0, Vec3::ONE),
-        (0.16, Vec3::new(1.02, 0.94, 1.02)),
-        (0.32, Vec3::new(0.98, 1.06, 0.98)),
-        (0.48, Vec3::new(1.02, 0.94, 1.02)),
-        (0.65, Vec3::ONE),
-    ]);
+    add_translation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.16, Vec3::new(0.0, 1.22, 0.0)),
+            (0.32, Vec3::new(0.0, 1.0, 0.0)),
+            (0.48, Vec3::new(0.0, 1.22, 0.0)),
+            (0.65, Vec3::new(0.0, 1.0, 0.0)),
+        ],
+    );
+    add_scale_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::ONE),
+            (0.16, Vec3::new(1.02, 0.94, 1.02)),
+            (0.32, Vec3::new(0.98, 1.06, 0.98)),
+            (0.48, Vec3::new(1.02, 0.94, 1.02)),
+            (0.65, Vec3::ONE),
+        ],
+    );
     clip
 }
 
 fn jump_start_clip(target: AnimationTargetId) -> AnimationClip {
     let mut clip = AnimationClip::default();
-    add_translation_curve(&mut clip, target, &[
-        (0.0, Vec3::ZERO),
-        (0.12, Vec3::new(0.0, 0.3, 0.0)),
-        (0.22, Vec3::new(0.0, 0.6, -0.1)),
-    ]);
-    add_rotation_curve(&mut clip, target, &[
-        (0.0, Quat::IDENTITY),
-        (0.22, Quat::from_rotation_x(-0.3)),
-    ]);
+    add_translation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.12, Vec3::new(0.0, 1.3, 0.0)),
+            (0.22, Vec3::new(0.0, 1.6, -0.1)),
+        ],
+    );
+    add_rotation_curve(
+        &mut clip,
+        target,
+        &[(0.0, Quat::IDENTITY), (0.22, Quat::from_rotation_x(-0.3))],
+    );
     clip
 }
 
 fn airborne_clip(target: AnimationTargetId) -> AnimationClip {
     let mut clip = AnimationClip::default();
-    add_translation_curve(&mut clip, target, &[
-        (0.0, Vec3::new(0.0, 0.22, 0.0)),
-        (0.27, Vec3::new(0.0, -0.08, 0.0)),
-        (0.55, Vec3::new(0.0, 0.22, 0.0)),
-    ]);
-    add_scale_curve(&mut clip, target, &[
-        (0.0, Vec3::new(0.96, 1.06, 0.96)),
-        (0.27, Vec3::new(1.04, 0.92, 1.04)),
-        (0.55, Vec3::new(0.96, 1.06, 0.96)),
-    ]);
+    add_translation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::new(0.0, 1.22, 0.0)),
+            (0.27, Vec3::new(0.0, 0.92, 0.0)),
+            (0.55, Vec3::new(0.0, 1.22, 0.0)),
+        ],
+    );
+    add_scale_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::new(0.96, 1.06, 0.96)),
+            (0.27, Vec3::new(1.04, 0.92, 1.04)),
+            (0.55, Vec3::new(0.96, 1.06, 0.96)),
+        ],
+    );
     clip
 }
 
 fn land_clip(target: AnimationTargetId) -> AnimationClip {
     let mut clip = AnimationClip::default();
-    add_scale_curve(&mut clip, target, &[
-        (0.0, Vec3::ONE),
-        (0.08, Vec3::new(1.12, 0.84, 1.12)),
-        (0.18, Vec3::ONE),
-    ]);
+    add_translation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.18, Vec3::new(0.0, 1.0, 0.0)),
+        ],
+    );
+    add_scale_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::ONE),
+            (0.08, Vec3::new(1.12, 0.84, 1.12)),
+            (0.18, Vec3::ONE),
+        ],
+    );
     clip
 }
 
 fn attack_clip(target: AnimationTargetId) -> AnimationClip {
     let mut clip = AnimationClip::default();
-    add_rotation_curve(&mut clip, target, &[
-        (0.0, Quat::IDENTITY),
-        (0.12, Quat::from_rotation_z(-0.8)),
-        (0.2, Quat::from_rotation_z(0.6)),
-        (0.35, Quat::IDENTITY),
-    ]);
+    add_rotation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Quat::IDENTITY),
+            (0.12, Quat::from_rotation_z(-0.8)),
+            (0.2, Quat::from_rotation_z(0.6)),
+            (0.35, Quat::IDENTITY),
+        ],
+    );
     clip
 }
 
 fn reload_clip(target: AnimationTargetId) -> AnimationClip {
     let mut clip = AnimationClip::default();
-    add_rotation_curve(&mut clip, target, &[
-        (0.0, Quat::IDENTITY),
-        (0.4, Quat::from_rotation_y(0.45)),
-        (0.8, Quat::IDENTITY),
-    ]);
-    add_translation_curve(&mut clip, target, &[
-        (0.0, Vec3::ZERO),
-        (0.4, Vec3::new(0.1, 0.08, 0.0)),
-        (0.8, Vec3::ZERO),
-    ]);
+    add_rotation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Quat::IDENTITY),
+            (0.4, Quat::from_rotation_y(0.45)),
+            (0.8, Quat::IDENTITY),
+        ],
+    );
+    add_translation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Vec3::new(0.0, 1.0, 0.0)),
+            (0.4, Vec3::new(0.1, 1.08, 0.0)),
+            (0.8, Vec3::new(0.0, 1.0, 0.0)),
+        ],
+    );
     clip
 }
 
 fn emote_clip(target: AnimationTargetId) -> AnimationClip {
     let mut clip = AnimationClip::default();
-    add_rotation_curve(&mut clip, target, &[
-        (0.0, Quat::IDENTITY),
-        (0.18, Quat::from_rotation_y(PI / 8.0)),
-        (0.36, Quat::from_rotation_y(-PI / 8.0)),
-        (0.55, Quat::IDENTITY),
-    ]);
+    add_rotation_curve(
+        &mut clip,
+        target,
+        &[
+            (0.0, Quat::IDENTITY),
+            (0.18, Quat::from_rotation_y(PI / 8.0)),
+            (0.36, Quat::from_rotation_y(-PI / 8.0)),
+            (0.55, Quat::IDENTITY),
+        ],
+    );
     clip
 }
 
-fn add_translation_curve(clip: &mut AnimationClip, target: AnimationTargetId, points: &[(f32, Vec3)]) {
+fn add_translation_curve(
+    clip: &mut AnimationClip,
+    target: AnimationTargetId,
+    points: &[(f32, Vec3)],
+) {
     clip.add_curve_to_target(
         target,
         AnimatableCurve::new(

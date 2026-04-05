@@ -65,8 +65,10 @@ pub(crate) fn initialize_machine(
         .push(ActiveStateFrame::new(initial_state.id.clone()));
     runtime.state_elapsed_seconds = 0.0;
     runtime.normalized_time = 0.0;
+    runtime.previous_normalized_time = 0.0;
     runtime.machine_time_seconds = 0.0;
     runtime.generation = 1;
+    runtime.fired_event_indices.clear();
     runtime.last_transition = Some(TransitionDecisionTrace {
         source_state: None,
         target_state: Some(initial_state.id.clone()),
@@ -114,6 +116,7 @@ pub(crate) fn advance_machine(
         .state(&current_state_id)
         .ok_or_else(|| TransitionRejectionReason::MissingState(current_state_id.clone()))?;
     let playback = derive_playback(current_state, runtime, facts);
+    runtime.previous_normalized_time = runtime.normalized_time;
     runtime.normalized_time = playback.normalized_time;
 
     let (resolved_transition, first_rejection) = resolve_transition(
@@ -416,6 +419,10 @@ fn matches_condition(
         TransitionCondition::InhibitFlagMissing(flag) => {
             facts.inhibit_flags.iter().all(|value| value != flag)
         }
+        TransitionCondition::CustomFlag(tag) => facts.custom_flags.iter().any(|value| value == tag),
+        TransitionCondition::CustomFlagMissing(tag) => {
+            facts.custom_flags.iter().all(|value| value != tag)
+        }
     }
 }
 
@@ -517,6 +524,8 @@ fn apply_transition(
     }
 
     runtime.generation += 1;
+    runtime.fired_event_indices.clear();
+    runtime.previous_normalized_time = 0.0;
     apply_selection(definition, runtime, selection);
     let blend = resolved
         .transition

@@ -1,0 +1,14 @@
+[package]
+name = "saddle-character-state-machine-example-graph-preview"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+bevy = { workspace = true }
+saddle-character-state-machine = { workspace = true }
+saddle-character-state-machine-example-support = { path = "../support" }
+saddle-pane = { workspace = true }
+
+[lints]
+workspace = true

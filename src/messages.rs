@@ -2,8 +2,8 @@ use bevy::prelude::*;
 
 use crate::components::TransitionRejectionReason;
 use crate::config::{
-    CharacterAnimationBindingId, CharacterStateId, CharacterStateMachineDefinitionId,
-    CharacterTransitionId,
+    AnimationEventId, CharacterAnimationBindingId, CharacterStateId,
+    CharacterStateMachineDefinitionId, CharacterTransitionId,
 };
 
 #[derive(Clone, Debug, Message, Reflect)]
@@ -54,4 +54,13 @@ pub struct AnimationBindingMissing {
     pub definition_id: CharacterStateMachineDefinitionId,
     pub state: CharacterStateId,
     pub binding: CharacterAnimationBindingId,
+}
+
+#[derive(Clone, Debug, Message, Reflect)]
+pub struct AnimationEventFired {
+    pub entity: Entity,
+    pub definition_id: CharacterStateMachineDefinitionId,
+    pub state: CharacterStateId,
+    pub event_id: AnimationEventId,
+    pub normalized_time: f32,
 }
