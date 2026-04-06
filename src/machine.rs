@@ -396,33 +396,26 @@ fn matches_condition(
 ) -> bool {
     match condition {
         TransitionCondition::Always => true,
-        TransitionCondition::Grounded(value) => facts.grounded == *value,
-        TransitionCondition::WallContact(value) => facts.wall_contact == *value,
-        TransitionCondition::AnimationLocked(value) => facts.animation_locked == *value,
-        TransitionCondition::SpeedAtLeast(value) => facts.speed >= *value,
-        TransitionCondition::SpeedAtMost(value) => facts.speed <= *value,
-        TransitionCondition::VerticalVelocityAtLeast(value) => facts.vertical_velocity >= *value,
-        TransitionCondition::VerticalVelocityAtMost(value) => facts.vertical_velocity <= *value,
+        TransitionCondition::Bool(fact, value) => facts.boolean_or(&fact.0, false) == *value,
+        TransitionCondition::NumberAtLeast(fact, value) => facts.number_or(&fact.0, 0.0) >= *value,
+        TransitionCondition::NumberAtMost(fact, value) => facts.number_or(&fact.0, 0.0) <= *value,
+        TransitionCondition::Vec2LengthAtLeast(fact, value) => {
+            facts.vec2_or(&fact.0, Vec2::ZERO).length() >= *value
+        }
+        TransitionCondition::Vec2LengthAtMost(fact, value) => {
+            facts.vec2_or(&fact.0, Vec2::ZERO).length() <= *value
+        }
         TransitionCondition::StateTimeAtLeast(value) => runtime.state_elapsed_seconds >= *value,
         TransitionCondition::StateTimeAtMost(value) => runtime.state_elapsed_seconds <= *value,
         TransitionCondition::NormalizedTimeAtLeast(value) => playback.normalized_time >= *value,
         TransitionCondition::NormalizedTimeAtMost(value) => playback.normalized_time <= *value,
         TransitionCondition::ExitWindowOpen => facts.exit_window_open,
         TransitionCondition::AnimationFinished => playback.clip_finished,
-        TransitionCondition::LocomotionMode(value) => &facts.locomotion_mode == value,
         TransitionCondition::ActionRequested(action) => {
             requests.is_some_and(|queue| queue.contains(action))
         }
-        TransitionCondition::InhibitFlagPresent(flag) => {
-            facts.inhibit_flags.iter().any(|value| value == flag)
-        }
-        TransitionCondition::InhibitFlagMissing(flag) => {
-            facts.inhibit_flags.iter().all(|value| value != flag)
-        }
-        TransitionCondition::CustomFlag(tag) => facts.custom_flags.iter().any(|value| value == tag),
-        TransitionCondition::CustomFlagMissing(tag) => {
-            facts.custom_flags.iter().all(|value| value != tag)
-        }
+        TransitionCondition::TagPresent(tag) => facts.has_tag(&tag.0),
+        TransitionCondition::TagMissing(tag) => !facts.has_tag(&tag.0),
     }
 }
 

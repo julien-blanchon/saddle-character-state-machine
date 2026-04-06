@@ -2,7 +2,7 @@
 
 Reusable character animation state machine for Bevy.
 
-The crate maps generic motion facts and action requests into logical animation states, pushdown interruptions, transition metadata, and optional Bevy `AnimationPlayer` playback. It is intentionally project-agnostic: no `Screen`, no `GameSet`, no gameplay assumptions about combat, AI, or a specific skeleton.
+The crate maps generic numeric, boolean, `Vec2`, and tag-based facts plus action requests into logical animation states, pushdown interruptions, transition metadata, and optional Bevy `AnimationPlayer` playback. It is intentionally project-agnostic: no `Screen`, no `GameSet`, no gameplay assumptions about combat, AI, or a specific skeleton.
 
 Use `CharacterStateMachinePlugin::always_on(Update)` for standalone examples and small tools. Use `CharacterStateMachinePlugin::new(...)` when you need explicit activate/deactivate schedules such as `OnEnter` / `OnExit`. Machines spawned after activation are initialized automatically on the next `GatherFacts` pass, so late-spawned characters do not need manual runtime setup.
 
@@ -15,12 +15,12 @@ This crate fills the gap — comparable in scope to Unity's Animator Controller 
 - **Data-driven state graphs** defined in code (no external editor dependency)
 - **Pushdown stack semantics** for temporary interrupts (attack, hit-react, emote) with clean resume
 - **Guard-based transitions** with priority ranking, minimum durations, exit windows, and interrupt policies
-- **1D blend trees** for locomotion blending within a single logical state
+- **1D blend trees** for smoothly blending continuous parameters inside a single logical state
 - **Concurrent animation layers** for upper-body overlays, additive recoil, etc.
 - **Dual output surface**: logical bindings for 2D/sprite consumers, plus optional `BevyAnimationBridge` for 3D skeletal playback
 - **DOT graph export** for state machine visualization and debugging
 
-The design stays intentionally below a full statechart runtime. If your game needs hierarchical parallel regions or a visual node editor, consider `bevy_animation_graph`. If you need a practical, code-first state machine that handles locomotion, actions, and layers without fighting an editor workflow, this crate is the right fit.
+The design stays intentionally below a full statechart runtime. If your game needs hierarchical parallel regions or a visual node editor, consider `bevy_animation_graph`. If you need a practical, code-first state machine that handles movement, actions, and layers without fighting an editor workflow, this crate is the right fit.
 
 ## Quick Start
 
@@ -32,7 +32,10 @@ bevy = "0.18"
 
 ```rust
 use bevy::prelude::*;
-use saddle_character_state_machine::*;
+use saddle_character_state_machine::{
+    *,
+    extensions::{self, conditions},
+};
 
 #[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum DemoState {
@@ -65,11 +68,11 @@ fn setup(
                 .add_state(StateDefinition::new("Run").with_binding("run"))
                 .add_transition(
                     TransitionDefinition::switch("idle_to_run", "Idle", "Run")
-                        .when(TransitionCondition::SpeedAtLeast(0.2)),
+                        .when(conditions::speed_at_least(0.2)),
                 )
                 .add_transition(
                     TransitionDefinition::switch("run_to_idle", "Run", "Idle")
-                        .when(TransitionCondition::SpeedAtMost(0.1)),
+                        .when(conditions::speed_at_most(0.1)),
                 ),
         )
         .unwrap();
@@ -77,10 +80,7 @@ fn setup(
     commands.spawn((
         Name::new("Hero"),
         CharacterStateMachine::new(definition_id),
-        CharacterAnimationFacts {
-            grounded: true,
-            ..default()
-        },
+        CharacterAnimationFacts::default().with_boolean(extensions::keys::GROUNDED, true),
     ));
 }
 ```
@@ -94,25 +94,28 @@ fn setup(
 | `CharacterStateMachineLibrary` | Shared definition registry for reusable machine graphs |
 | `CharacterStateMachineDefinition` | Data-driven state graph: initial state, fallback state, states, transitions, and default blend |
 | `CharacterStateMachine` | Per-entity machine component pointing at a registered definition |
-| `CharacterAnimationFacts` | Generic inputs such as speed, grounded, vertical velocity, locomotion mode, wall contact, and inhibit flags |
+| `CharacterAnimationFacts` | Generic numeric, boolean, `Vec2`, and tag-based gameplay facts plus playback timing fields |
 | `CharacterAnimationRequests` | One-frame action queue used by transitions with `ActionRequested(...)` guards |
 | `CharacterStateMachineRuntime` | BRP/debug-friendly runtime surface: current state, previous state, stack, current binding, pending request, state time, normalized time, and last transition trace |
 | `CharacterAnimationSelection` | Logical output surface: selected state, dominant binding id, weighted active bindings, blend metadata, and sync hint |
 | `BevyAnimationBridge` | Optional Bevy `AnimationPlayer` integration for `AnimationGraph` node playback |
-| `BlendTree1D` / `BlendTreeParameter` | Per-state 1D binding blends driven by generic animation facts such as speed or locomotion intensity |
+| `BlendTree1D` / `BlendTreeParameter` | Per-state 1D binding blends driven by named numeric facts or named `Vec2` axes/length |
 | `CharacterAnimationLayers` | Optional concurrent overlay bindings for upper-body aim, additive recoil, or other extra animation channels |
+| `extensions` | Common fact keys and ergonomic helpers for patterns like speed, grounded, and direction vectors |
+| `locomotion` | Optional recipe layer that keeps the old `LocomotionMode` helpers on top of generic facts/tags |
 | Messages | `StateEntered`, `StateExited`, `StatePushed`, `StatePopped`, `TransitionRejected`, `AnimationBindingMissing` |
 
 ## Supported Patterns
 
-- Locomotion selection from movement facts such as `speed`, `grounded`, and `vertical_velocity`
-- 1D locomotion blend trees that smoothly mix multiple bindings inside a single logical state
+- Generic state selection from named numeric, boolean, `Vec2`, and tag facts
+- 1D blend trees that smoothly mix multiple bindings from named facts instead of a hardcoded controller vocabulary
 - Temporary pushdown states like attack, reload, hit-react, or emote
 - Concurrent animation layers driven by extra binding inputs instead of hardcoding everything into the base state graph
 - Lightweight hierarchy through parent-state fallback chains
 - Transition guards with explicit priorities, minimum durations, exit windows, and interrupt rules
 - Logical binding output for 2D or sprite-driven consumers
 - Optional Bevy `AnimationTransitions` playback for 3D / transform animations
+- Optional locomotion recipe helpers for projects that still want `LocomotionMode::{Idle, Walk, Run, Sprint}`
 - BRP-visible runtime diagnostics through reflected components
 
 ## Schedule Injection
@@ -136,6 +139,8 @@ app.add_plugins(CharacterStateMachinePlugin::always_on(Update));
 ## Configuration Notes
 
 - The runtime is data-driven but intentionally small. `StateDefinition` and `TransitionDefinition` cover common production needs without becoming a full editor/runtime graph system.
+- Use the `extensions` module for ergonomic speed / grounded / direction helpers without coupling the core crate to a humanoid-specific vocabulary.
+- Use the `locomotion` module only when a project actually wants the legacy gait recipe layer.
 - `TransitionSource::State(parent_id)` plus `StateDefinition::with_parent(...)` gives lightweight hierarchy without a heavyweight statechart runtime.
 - `TransitionDefinition::push(...)` plus `PushConflictPolicy` covers stacking, replace-top, and reject behavior for temporary states.
 - `CharacterAnimationSelection` is always updated, even if you do not use `BevyAnimationBridge`. `binding` remains the dominant logical binding for backwards-compatible consumers, while `active_bindings` exposes the full weighted playback plan for blend trees and layers.
@@ -161,7 +166,7 @@ app.add_plugins(CharacterStateMachinePlugin::always_on(Update));
 | `stacked_actions` | Rich showcase with locomotion, jump, reload rejection, attack push, emote replace-top, and HUD diagnostics | `cargo run -p saddle-character-state-machine-example-stacked-actions` |
 | `graph_preview` | 2D visual state graph with live state highlighting, pane-driven fact inputs, and DOT export | `cargo run -p saddle-character-state-machine-example-graph-preview` |
 
-Every standalone example now ships with a live `saddle-pane` panel so blend thresholds, locomotion values, jump timing, and layer weights can be tuned without recompiling.
+Every standalone example now ships with a live `saddle-pane` panel so fact thresholds, jump timing, and layer weights can be tuned without recompiling.
 
 ## Workspace Lab
 

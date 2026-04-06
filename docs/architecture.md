@@ -26,7 +26,7 @@ CharacterAnimationFacts / CharacterAnimationRequests
 The runtime revolves around five concepts:
 
 1. `CharacterAnimationFacts`
-   Input facts such as speed, grounded, wall contact, vertical velocity, locomotion mode, inhibit flags, and optional clip timing.
+   Input facts stored as named numeric, boolean, `Vec2`, and tag values plus optional playback timing fields.
 2. `StateDefinition`
    A logical animation state with an id, optional parent state, binding id, duration hint, interrupt policy, and resume policy.
 3. `TransitionDefinition`
@@ -84,7 +84,7 @@ GatherFacts -> ResolveTransitions -> ApplyAnimation -> Cleanup
 The pushdown stack exists to handle temporary interrupts cleanly.
 
 ```text
-Base locomotion state
+Base movement state
     push Attack
         push HitReact
         pop -> Attack resumes
@@ -111,6 +111,13 @@ Hierarchy is intentionally simple:
 - The runtime walks `current -> parent -> grandparent -> ...` before checking `Any`.
 
 This keeps grounded/airborne shared rules possible without implementing a full orthogonal statechart runtime.
+
+## Ergonomic Layers
+
+The core runtime is intentionally generic. Ergonomics live one layer above it:
+
+- `extensions` defines conventional fact keys plus helpers such as `conditions::speed_at_least(...)` and `parameters::movement_direction_x()`.
+- `locomotion` is an optional recipe layer that maps `LocomotionMode` onto generic tags and keeps gait-specific semantics out of `CharacterAnimationFacts`.
 
 ## Animation Integration Strategy
 
@@ -158,7 +165,7 @@ Every blocked transition updates `CharacterStateMachineRuntime.last_transition`,
 
 ## Extension Points
 
-- Add new `TransitionCondition` variants when a fact becomes broadly reusable.
+- Prefer adding helpers in `extensions` or an opt-in recipe module before expanding the core transition vocabulary.
 - Keep custom gameplay rules outside the crate by deriving additional generic facts before `GatherFacts`.
 - Swap the Bevy animation bridge for a sprite, shader, or material adapter by consuming `CharacterAnimationSelection`.
 - Replace the linear Bevy transition adapter later without changing the logical state machine API.

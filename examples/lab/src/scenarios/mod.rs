@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use saddle_bevy_e2e::{action::Action, actions::assertions, scenario::Scenario};
 use saddle_character_state_machine::{
     CharacterAnimationFacts, CharacterAnimationRequests, CharacterAnimationSelection,
-    CharacterStateMachineRuntime,
+    CharacterStateMachineRuntime, extensions::CharacterAnimationFactsExt,
 };
 
 pub fn list_scenarios() -> Vec<&'static str> {
@@ -48,8 +48,8 @@ fn trigger_airborne() -> Action {
             let mut facts = entity_ref
                 .get_mut::<CharacterAnimationFacts>()
                 .expect("lab character should expose animation facts");
-            facts.grounded = false;
-            facts.vertical_velocity = 4.8;
+            facts.set_grounded(false);
+            facts.set_vertical_velocity(4.8);
         }
         world.resource_mut::<crate::AirState>().airborne_time = 0.24;
     }))

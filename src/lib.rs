@@ -1,6 +1,8 @@
 mod bindings;
 mod components;
 mod config;
+pub mod extensions;
+pub mod locomotion;
 mod machine;
 mod messages;
 mod systems;
@@ -12,17 +14,17 @@ pub use bindings::{
 };
 pub use components::{
     ActiveStateFrame, CharacterActionRequest, CharacterAnimationFacts, CharacterAnimationRequests,
-    CharacterStateMachine, CharacterStateMachineRuntime, LocomotionMode, TransitionDecisionTrace,
+    CharacterStateMachine, CharacterStateMachineRuntime, TransitionDecisionTrace,
     TransitionOutcome, TransitionRejectionReason,
 };
 pub use config::{
     AnimationEventDefinition, AnimationEventId, BlendDefinition, BlendEasing, BlendTree1D,
     BlendTree1DPoint, BlendTreeParameter, CharacterActionId, CharacterAnimationBindingId,
-    CharacterStateId, CharacterStateMachineDefinition, CharacterStateMachineDefinitionId,
-    CharacterStateMachineLibrary, CharacterStateMachineValidationError, CharacterTransitionId,
-    NormalizedTimeWindow, PushConflictPolicy, ResumePolicy, StateDefinition, StateKind,
-    TransitionCondition, TransitionDefinition, TransitionGuard, TransitionOperation,
-    TransitionSource,
+    CharacterFactId, CharacterFactTag, CharacterStateId, CharacterStateMachineDefinition,
+    CharacterStateMachineDefinitionId, CharacterStateMachineLibrary,
+    CharacterStateMachineValidationError, CharacterTransitionId, NormalizedTimeWindow,
+    PushConflictPolicy, ResumePolicy, StateDefinition, StateKind, TransitionCondition,
+    TransitionDefinition, TransitionGuard, TransitionOperation, TransitionSource,
 };
 pub use messages::{
     AnimationBindingMissing, AnimationEventFired, StateEntered, StateExited, StatePopped,
@@ -101,11 +103,13 @@ impl Plugin for CharacterStateMachinePlugin {
             .register_type::<CharacterAnimationLayers>()
             .register_type::<CharacterAnimationRequests>()
             .register_type::<CharacterAnimationSelection>()
+            .register_type::<CharacterFactId>()
+            .register_type::<CharacterFactTag>()
             .register_type::<CharacterStateId>()
             .register_type::<CharacterStateMachine>()
             .register_type::<CharacterStateMachineDefinitionId>()
             .register_type::<CharacterStateMachineRuntime>()
-            .register_type::<LocomotionMode>()
+            .register_type::<locomotion::LocomotionMode>()
             .register_type::<PlaybackRepeat>()
             .register_type::<TransitionDecisionTrace>()
             .register_type::<TransitionOutcome>()

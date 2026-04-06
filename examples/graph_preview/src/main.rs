@@ -1,6 +1,7 @@
 use saddle_character_state_machine_example_support as support;
 
 use bevy::prelude::*;
+use saddle_character_state_machine::extensions::{CharacterAnimationFactsExt, conditions, keys};
 use saddle_character_state_machine::*;
 use saddle_pane::prelude::*;
 
@@ -94,16 +95,16 @@ fn build_preview_definition() -> CharacterStateMachineDefinition {
         )
         .add_transition(
             TransitionDefinition::switch("idle_to_locomotion", "Idle", "Locomotion")
-                .when(TransitionCondition::SpeedAtLeast(0.25)),
+                .when(conditions::speed_at_least(0.25)),
         )
         .add_transition(
             TransitionDefinition::switch("locomotion_to_idle", "Locomotion", "Idle")
-                .when(TransitionCondition::SpeedAtMost(0.1)),
+                .when(conditions::speed_at_most(0.1)),
         )
         .add_transition(
             TransitionDefinition::switch("leave_ground", "Grounded", "JumpStart")
-                .when(TransitionCondition::Grounded(false))
-                .when(TransitionCondition::VerticalVelocityAtLeast(0.0)),
+                .when(conditions::grounded(false))
+                .when(conditions::vertical_velocity_at_least(0.0)),
         )
         .add_transition(
             TransitionDefinition::switch("jump_to_airborne", "JumpStart", "Airborne")
@@ -111,8 +112,8 @@ fn build_preview_definition() -> CharacterStateMachineDefinition {
         )
         .add_transition(
             TransitionDefinition::switch("airborne_to_land", "Airborne", "Land")
-                .when(TransitionCondition::Grounded(true))
-                .when(TransitionCondition::VerticalVelocityAtMost(0.0)),
+                .when(conditions::grounded(true))
+                .when(conditions::vertical_velocity_at_most(0.0)),
         )
         .add_transition(
             TransitionDefinition::switch("land_to_idle", "Land", "Idle")
@@ -232,10 +233,7 @@ fn setup(
         Name::new("Graph Preview Character"),
         PreviewCharacter,
         CharacterStateMachine::new(definition_id),
-        CharacterAnimationFacts {
-            grounded: true,
-            ..default()
-        },
+        CharacterAnimationFacts::default().with_boolean(keys::GROUNDED, true),
         CharacterAnimationRequests::default(),
     ));
 
@@ -280,9 +278,9 @@ fn drive_from_pane(
     clock.elapsed += time.delta_secs();
 
     for (mut facts, mut requests) in &mut query {
-        facts.speed = pane.speed;
-        facts.grounded = pane.grounded;
-        facts.vertical_velocity = pane.vertical_velocity;
+        facts.set_speed(pane.speed);
+        facts.set_grounded(pane.grounded);
+        facts.set_vertical_velocity(pane.vertical_velocity);
 
         if keyboard.just_pressed(KeyCode::KeyJ) {
             requests.push("attack");

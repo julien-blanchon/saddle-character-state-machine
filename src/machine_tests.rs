@@ -1,12 +1,13 @@
 use crate::bindings::CharacterAnimationSelection;
 use crate::components::{
     CharacterAnimationFacts, CharacterAnimationRequests, CharacterStateMachineRuntime,
-    LocomotionMode, TransitionRejectionReason,
+    TransitionRejectionReason,
 };
 use crate::config::{
     BlendDefinition, BlendEasing, CharacterStateMachineDefinition, PushConflictPolicy,
     ResumePolicy, StateDefinition, TransitionCondition, TransitionDefinition, TransitionSource,
 };
+use crate::extensions::{CharacterAnimationFactsExt, conditions};
 use crate::machine::{advance_machine, initialize_machine};
 
 fn make_definition() -> CharacterStateMachineDefinition {
@@ -61,11 +62,11 @@ fn make_definition() -> CharacterStateMachineDefinition {
         )
         .add_transition(
             TransitionDefinition::switch("idle_to_locomotion", "Idle", "Locomotion")
-                .when(TransitionCondition::SpeedAtLeast(0.2)),
+                .when(conditions::speed_at_least(0.2)),
         )
         .add_transition(
             TransitionDefinition::switch("locomotion_to_idle", "Locomotion", "Idle")
-                .when(TransitionCondition::SpeedAtMost(0.05)),
+                .when(conditions::speed_at_most(0.05)),
         )
         .add_transition(
             TransitionDefinition::push("attack_push", TransitionSource::Any, "Attack")
@@ -86,8 +87,8 @@ fn make_definition() -> CharacterStateMachineDefinition {
         )
         .add_transition(
             TransitionDefinition::switch("leave_ground", "Grounded", "JumpStart")
-                .when(TransitionCondition::Grounded(false))
-                .when(TransitionCondition::VerticalVelocityAtLeast(0.0)),
+                .when(conditions::grounded(false))
+                .when(conditions::vertical_velocity_at_least(0.0)),
         )
         .add_transition(
             TransitionDefinition::switch("jump_to_air", "JumpStart", "Airborne")
@@ -95,8 +96,8 @@ fn make_definition() -> CharacterStateMachineDefinition {
         )
         .add_transition(
             TransitionDefinition::switch("air_to_land", "Airborne", "Land")
-                .when(TransitionCondition::Grounded(true))
-                .when(TransitionCondition::VerticalVelocityAtMost(0.0)),
+                .when(conditions::grounded(true))
+                .when(conditions::vertical_velocity_at_most(0.0)),
         )
         .add_transition(
             TransitionDefinition::switch("land_to_idle", "Land", "Idle")
@@ -111,12 +112,9 @@ fn pushed_attack_pops_back_to_previous_state() {
     let mut selection = CharacterAnimationSelection::default();
     initialize_machine(&definition, &mut runtime, &mut selection).unwrap();
 
-    let mut facts = CharacterAnimationFacts {
-        speed: 1.0,
-        locomotion_mode: LocomotionMode::Run,
-        grounded: true,
-        ..Default::default()
-    };
+    let mut facts = CharacterAnimationFacts::default();
+    facts.set_speed(1.0);
+    facts.set_grounded(true);
     advance_machine(
         &definition,
         &mut runtime,
@@ -164,10 +162,8 @@ fn non_interruptible_reload_rejects_attack_push() {
     let mut selection = CharacterAnimationSelection::default();
     initialize_machine(&definition, &mut runtime, &mut selection).unwrap();
 
-    let facts = CharacterAnimationFacts {
-        grounded: true,
-        ..Default::default()
-    };
+    let mut facts = CharacterAnimationFacts::default();
+    facts.set_grounded(true);
     let mut requests = CharacterAnimationRequests::default();
     requests.push("reload");
     advance_machine(
@@ -214,11 +210,9 @@ fn airborne_landing_transition_requires_grounded_descent() {
     runtime.current_state = Some("Airborne".into());
     runtime.state_stack = vec![crate::components::ActiveStateFrame::new("Airborne")];
 
-    let mut facts = CharacterAnimationFacts {
-        grounded: false,
-        vertical_velocity: -4.0,
-        ..Default::default()
-    };
+    let mut facts = CharacterAnimationFacts::default();
+    facts.set_grounded(false);
+    facts.set_vertical_velocity(-4.0);
     advance_machine(
         &definition,
         &mut runtime,
@@ -230,7 +224,7 @@ fn airborne_landing_transition_requires_grounded_descent() {
     .unwrap();
     assert_eq!(runtime.current_state.as_ref().unwrap().0, "Airborne");
 
-    facts.grounded = true;
+    facts.set_grounded(true);
     advance_machine(
         &definition,
         &mut runtime,
@@ -288,7 +282,7 @@ fn transition_blend_override_and_sync_time_are_applied_to_selection() {
         )
         .add_transition(
             TransitionDefinition::switch("idle_to_locomotion", "Idle", "Locomotion")
-                .when(TransitionCondition::SpeedAtLeast(0.2))
+                .when(conditions::speed_at_least(0.2))
                 .with_blend(
                     BlendDefinition::new(0.35)
                         .with_easing(BlendEasing::SineInOut)
@@ -300,11 +294,9 @@ fn transition_blend_override_and_sync_time_are_applied_to_selection() {
     let mut selection = CharacterAnimationSelection::default();
     initialize_machine(&definition, &mut runtime, &mut selection).unwrap();
 
-    let facts = CharacterAnimationFacts {
-        speed: 1.0,
-        animation_normalized_time: 0.42,
-        ..Default::default()
-    };
+    let mut facts = CharacterAnimationFacts::default();
+    facts.set_speed(1.0);
+    facts.animation_normalized_time = 0.42;
 
     advance_machine(
         &definition,
@@ -453,11 +445,11 @@ fn custom_flag_condition_evaluates_correctly() {
         .add_state(StateDefinition::new("Special").with_binding("special"))
         .add_transition(
             TransitionDefinition::switch("idle_to_special", "Idle", "Special")
-                .when(TransitionCondition::CustomFlag("powered_up".into())),
+                .when(TransitionCondition::tag_present("powered_up")),
         )
         .add_transition(
             TransitionDefinition::switch("special_to_idle", "Special", "Idle")
-                .when(TransitionCondition::CustomFlagMissing("powered_up".into())),
+                .when(TransitionCondition::tag_missing("powered_up")),
         );
 
     let mut runtime = CharacterStateMachineRuntime::default();
@@ -478,10 +470,7 @@ fn custom_flag_condition_evaluates_correctly() {
     assert_eq!(runtime.current_state.as_ref().unwrap().0, "Idle");
 
     // With the custom flag, transition fires
-    let facts = CharacterAnimationFacts {
-        custom_flags: vec!["powered_up".into()],
-        ..Default::default()
-    };
+    let facts = CharacterAnimationFacts::default().with_tag("powered_up");
     advance_machine(
         &definition,
         &mut runtime,

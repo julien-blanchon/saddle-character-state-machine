@@ -4,6 +4,9 @@ use bevy::{
     animation::{AnimatedBy, AnimationTargetId, animated_field},
     prelude::*,
 };
+use saddle_character_state_machine::extensions::{
+    CharacterAnimationFactsExt, conditions, keys, parameters,
+};
 use saddle_character_state_machine::*;
 use saddle_character_state_machine_example_support as support;
 use saddle_pane::prelude::*;
@@ -80,7 +83,7 @@ fn build_showcase_definition() -> CharacterStateMachineDefinition {
             StateDefinition::new("Locomotion")
                 .with_parent("Grounded")
                 .with_blend_tree_1d(
-                    BlendTree1D::new(BlendTreeParameter::Speed)
+                    BlendTree1D::new(parameters::speed())
                         .with_point(0.25, "walk")
                         .with_point(1.0, "run"),
                 )
@@ -124,16 +127,16 @@ fn build_showcase_definition() -> CharacterStateMachineDefinition {
         )
         .add_transition(
             TransitionDefinition::switch("idle_to_locomotion", "Idle", "Locomotion")
-                .when(TransitionCondition::SpeedAtLeast(0.25)),
+                .when(conditions::speed_at_least(0.25)),
         )
         .add_transition(
             TransitionDefinition::switch("locomotion_to_idle", "Locomotion", "Idle")
-                .when(TransitionCondition::SpeedAtMost(0.1)),
+                .when(conditions::speed_at_most(0.1)),
         )
         .add_transition(
             TransitionDefinition::switch("leave_ground", "Grounded", "JumpStart")
-                .when(TransitionCondition::Grounded(false))
-                .when(TransitionCondition::VerticalVelocityAtLeast(0.0)),
+                .when(conditions::grounded(false))
+                .when(conditions::vertical_velocity_at_least(0.0)),
         )
         .add_transition(
             TransitionDefinition::switch("jump_to_airborne", "JumpStart", "Airborne")
@@ -141,8 +144,8 @@ fn build_showcase_definition() -> CharacterStateMachineDefinition {
         )
         .add_transition(
             TransitionDefinition::switch("airborne_to_land", "Airborne", "Land")
-                .when(TransitionCondition::Grounded(true))
-                .when(TransitionCondition::VerticalVelocityAtMost(0.0)),
+                .when(conditions::grounded(true))
+                .when(conditions::vertical_velocity_at_most(0.0)),
         )
         .add_transition(
             TransitionDefinition::switch("land_to_idle", "Land", "Idle")
@@ -291,10 +294,7 @@ fn setup(
         .spawn((
             Name::new("Stacked Actions Character"),
             CharacterStateMachine::new(definition_id),
-            CharacterAnimationFacts {
-                grounded: true,
-                ..default()
-            },
+            CharacterAnimationFacts::default().with_boolean(keys::GROUNDED, true),
             CharacterAnimationRequests::default(),
             AnimationPlayer::default(),
             bridge,
@@ -332,8 +332,11 @@ fn setup(
     ));
 
     commands.spawn((
+        Name::new("Stacked Actions HUD"),
         ShowcaseHud,
-        Text::new("W run | Space jump | J attack | R reload | E emote | F aim layer"),
+        Text::new(
+            "W run | Space jump | J attack | R reload | E emote | F aim layer\nPane: tune movement, jump arc, and layer weight live",
+        ),
         Node {
             position_type: PositionType::Absolute,
             left: px(18.0),
@@ -368,12 +371,7 @@ fn control_showcase(
 ) {
     for (mut transform, mut facts, mut requests, mut layers) in &mut query {
         let moving = keyboard.pressed(KeyCode::KeyW);
-        facts.speed = if moving { pane.move_speed } else { 0.0 };
-        facts.locomotion_mode = if moving {
-            LocomotionMode::Run
-        } else {
-            LocomotionMode::Idle
-        };
+        facts.set_speed(if moving { pane.move_speed } else { 0.0 });
         if moving {
             transform.translation.x = (transform.translation.x
                 + pane.translation_speed * time.delta_secs())
@@ -392,9 +390,9 @@ fn control_showcase(
         if keyboard.just_pressed(KeyCode::KeyF) {
             pane.aim_layer_enabled = !pane.aim_layer_enabled;
         }
-        if keyboard.just_pressed(KeyCode::Space) && facts.grounded {
-            facts.grounded = false;
-            facts.vertical_velocity = pane.jump_velocity;
+        if keyboard.just_pressed(KeyCode::Space) && facts.grounded() {
+            facts.set_grounded(false);
+            facts.set_vertical_velocity(pane.jump_velocity);
             air_state.airborne_time = pane.jump_hold_seconds;
         }
 
@@ -404,21 +402,23 @@ fn control_showcase(
             layer.weight = pane.aim_layer_weight;
         }
 
-        if !facts.grounded {
+        if !facts.grounded() {
             if air_state.airborne_time > 0.0 {
                 air_state.airborne_time -= time.delta_secs();
-                facts.vertical_velocity = pane.jump_velocity;
+                facts.set_vertical_velocity(pane.jump_velocity);
             } else {
-                facts.vertical_velocity -= pane.gravity * time.delta_secs();
+                let next_vertical_velocity =
+                    facts.vertical_velocity() - pane.gravity * time.delta_secs();
+                facts.set_vertical_velocity(next_vertical_velocity);
             }
-            transform.translation.y += facts.vertical_velocity * time.delta_secs();
+            transform.translation.y += facts.vertical_velocity() * time.delta_secs();
             if transform.translation.y <= 0.0 {
                 transform.translation.y = 0.0;
-                facts.grounded = true;
-                facts.vertical_velocity = -1.0;
+                facts.set_grounded(true);
+                facts.set_vertical_velocity(-1.0);
             }
         } else {
-            facts.vertical_velocity = 0.0;
+            facts.set_vertical_velocity(0.0);
         }
     }
 }

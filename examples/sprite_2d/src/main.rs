@@ -1,6 +1,7 @@
 use saddle_character_state_machine_example_support as support;
 
 use bevy::prelude::*;
+use saddle_character_state_machine::extensions::{CharacterAnimationFactsExt, conditions, keys};
 use saddle_character_state_machine::*;
 use saddle_pane::prelude::*;
 
@@ -55,7 +56,7 @@ fn main() {
 }
 
 fn setup(mut commands: Commands, mut library: ResMut<CharacterStateMachineLibrary>) {
-    commands.spawn(Camera2d);
+    commands.spawn((Name::new("Sprite Camera"), Camera2d));
 
     let definition = CharacterStateMachineDefinition::new("sprite_platformer", "Idle")
         .with_fallback_state("Idle")
@@ -95,16 +96,16 @@ fn setup(mut commands: Commands, mut library: ResMut<CharacterStateMachineLibrar
         )
         .add_transition(
             TransitionDefinition::switch("idle_to_run", "Idle", "Run")
-                .when(TransitionCondition::SpeedAtLeast(0.2)),
+                .when(conditions::speed_at_least(0.2)),
         )
         .add_transition(
             TransitionDefinition::switch("run_to_idle", "Run", "Idle")
-                .when(TransitionCondition::SpeedAtMost(0.05)),
+                .when(conditions::speed_at_most(0.05)),
         )
         .add_transition(
             TransitionDefinition::switch("leave_ground", "Grounded", "Jump")
-                .when(TransitionCondition::Grounded(false))
-                .when(TransitionCondition::VerticalVelocityAtLeast(0.0)),
+                .when(conditions::grounded(false))
+                .when(conditions::vertical_velocity_at_least(0.0)),
         )
         .add_transition(
             TransitionDefinition::switch("jump_to_fall", "Jump", "Fall")
@@ -112,16 +113,16 @@ fn setup(mut commands: Commands, mut library: ResMut<CharacterStateMachineLibrar
         )
         .add_transition(
             TransitionDefinition::switch("fall_to_wall_slide", "Fall", "WallSlide")
-                .when(TransitionCondition::WallContact(true)),
+                .when(conditions::wall_contact(true)),
         )
         .add_transition(
             TransitionDefinition::switch("wall_slide_to_fall", "WallSlide", "Fall")
-                .when(TransitionCondition::WallContact(false)),
+                .when(conditions::wall_contact(false)),
         )
         .add_transition(
             TransitionDefinition::switch("fall_to_land", "Fall", "Land")
-                .when(TransitionCondition::Grounded(true))
-                .when(TransitionCondition::VerticalVelocityAtMost(0.0)),
+                .when(conditions::grounded(true))
+                .when(conditions::vertical_velocity_at_most(0.0)),
         )
         .add_transition(
             TransitionDefinition::switch("land_to_idle", "Land", "Idle")
@@ -133,22 +134,21 @@ fn setup(mut commands: Commands, mut library: ResMut<CharacterStateMachineLibrar
         Name::new("2D Platformer Sprite"),
         PlatformerSprite,
         CharacterStateMachine::new(definition_id),
-        CharacterAnimationFacts {
-            grounded: true,
-            ..default()
-        },
+        CharacterAnimationFacts::default().with_boolean(keys::GROUNDED, true),
         Sprite::from_color(Color::srgb(0.28, 0.54, 0.90), Vec2::new(70.0, 120.0)),
         Transform::from_xyz(0.0, 0.0, 0.0),
     ));
 
     commands.spawn((
+        Name::new("Sprite Floor"),
         Sprite::from_color(Color::srgb(0.14, 0.16, 0.14), Vec2::new(700.0, 26.0)),
         Transform::from_xyz(0.0, -130.0, 0.0),
     ));
 
     commands.spawn((
+        Name::new("Sprite HUD"),
         PlatformerHud,
-        Text::new("Arrow keys: move, Space: jump"),
+        Text::new("Arrow keys: move, Space: jump\nPane: tune gravity and wall-slide response"),
         Node {
             position_type: PositionType::Absolute,
             left: px(18.0),
@@ -174,33 +174,38 @@ fn drive_platformer(
     for (mut transform, mut facts) in &mut query {
         let axis = (keyboard.pressed(KeyCode::ArrowRight) as i8
             - keyboard.pressed(KeyCode::ArrowLeft) as i8) as f32;
-        facts.speed = axis.abs();
+        facts.set_speed(axis.abs());
         transform.translation.x = (transform.translation.x
             + axis * pane.move_speed * time.delta_secs())
         .clamp(-280.0, 280.0);
 
-        if keyboard.just_pressed(KeyCode::Space) && facts.grounded {
-            facts.grounded = false;
-            facts.vertical_velocity = pane.jump_velocity;
+        if keyboard.just_pressed(KeyCode::Space) && facts.grounded() {
+            facts.set_grounded(false);
+            facts.set_vertical_velocity(pane.jump_velocity);
         }
 
-        if !facts.grounded {
-            facts.vertical_velocity -= pane.gravity * time.delta_secs();
-            transform.translation.y += facts.vertical_velocity * time.delta_secs();
-            facts.wall_contact =
-                transform.translation.x.abs() >= 275.0 && facts.vertical_velocity < 0.0;
-            if facts.wall_contact {
-                facts.vertical_velocity = facts.vertical_velocity.max(-pane.wall_slide_speed);
+        if !facts.grounded() {
+            let next_vertical_velocity =
+                facts.vertical_velocity() - pane.gravity * time.delta_secs();
+            facts.set_vertical_velocity(next_vertical_velocity);
+            transform.translation.y += facts.vertical_velocity() * time.delta_secs();
+            let wall_contact =
+                transform.translation.x.abs() >= 275.0 && facts.vertical_velocity() < 0.0;
+            facts.set_wall_contact(wall_contact);
+            if wall_contact {
+                let clamped_vertical_velocity =
+                    facts.vertical_velocity().max(-pane.wall_slide_speed);
+                facts.set_vertical_velocity(clamped_vertical_velocity);
             }
             if transform.translation.y <= -70.0 {
                 transform.translation.y = -70.0;
-                facts.grounded = true;
-                facts.wall_contact = false;
-                facts.vertical_velocity = -1.0;
+                facts.set_grounded(true);
+                facts.set_wall_contact(false);
+                facts.set_vertical_velocity(-1.0);
             }
         } else {
-            facts.vertical_velocity = 0.0;
-            facts.wall_contact = false;
+            facts.set_vertical_velocity(0.0);
+            facts.set_wall_contact(false);
         }
     }
 }

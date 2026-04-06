@@ -1,9 +1,10 @@
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 
 use bevy::prelude::*;
 
-use crate::components::{CharacterAnimationFacts, LocomotionMode};
+use crate::components::CharacterAnimationFacts;
 
 macro_rules! define_id {
     ($name:ident) => {
@@ -20,6 +21,12 @@ macro_rules! define_id {
         impl Display for $name {
             fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
                 f.write_str(&self.0)
+            }
+        }
+
+        impl Borrow<str> for $name {
+            fn borrow(&self) -> &str {
+                &self.0
             }
         }
 
@@ -43,6 +50,8 @@ define_id!(CharacterActionId);
 define_id!(CharacterAnimationBindingId);
 define_id!(CharacterTransitionId);
 define_id!(AnimationEventId);
+define_id!(CharacterFactId);
+define_id!(CharacterFactTag);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum StateKind {
@@ -99,27 +108,37 @@ impl Default for BlendDefinition {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Reflect)]
+#[derive(Clone, Debug, PartialEq, Eq, Reflect)]
 pub enum BlendTreeParameter {
-    Speed,
-    LocomotionIntensity,
-    VerticalVelocity,
-    MovementDirectionX,
-    MovementDirectionY,
-    FacingDirectionX,
-    AimDirectionX,
+    Number(CharacterFactId),
+    Vec2X(CharacterFactId),
+    Vec2Y(CharacterFactId),
+    Vec2Length(CharacterFactId),
 }
 
 impl BlendTreeParameter {
-    pub fn sample(self, facts: &CharacterAnimationFacts) -> f32 {
+    pub fn number(fact: impl Into<CharacterFactId>) -> Self {
+        Self::Number(fact.into())
+    }
+
+    pub fn vec2_x(fact: impl Into<CharacterFactId>) -> Self {
+        Self::Vec2X(fact.into())
+    }
+
+    pub fn vec2_y(fact: impl Into<CharacterFactId>) -> Self {
+        Self::Vec2Y(fact.into())
+    }
+
+    pub fn vec2_length(fact: impl Into<CharacterFactId>) -> Self {
+        Self::Vec2Length(fact.into())
+    }
+
+    pub fn sample(&self, facts: &CharacterAnimationFacts) -> f32 {
         match self {
-            Self::Speed => facts.speed,
-            Self::LocomotionIntensity => facts.locomotion_intensity,
-            Self::VerticalVelocity => facts.vertical_velocity,
-            Self::MovementDirectionX => facts.movement_direction.x,
-            Self::MovementDirectionY => facts.movement_direction.y,
-            Self::FacingDirectionX => facts.facing_direction.x,
-            Self::AimDirectionX => facts.aim_direction.x,
+            Self::Number(fact) => facts.number_or(&fact.0, 0.0),
+            Self::Vec2X(fact) => facts.vec2_or(&fact.0, Vec2::ZERO).x,
+            Self::Vec2Y(fact) => facts.vec2_or(&fact.0, Vec2::ZERO).y,
+            Self::Vec2Length(fact) => facts.vec2_or(&fact.0, Vec2::ZERO).length(),
         }
     }
 }
@@ -297,28 +316,50 @@ impl From<&str> for TransitionSource {
 #[derive(Clone, Debug, PartialEq, Reflect)]
 pub enum TransitionCondition {
     Always,
-    Grounded(bool),
-    WallContact(bool),
-    AnimationLocked(bool),
-    SpeedAtLeast(f32),
-    SpeedAtMost(f32),
-    VerticalVelocityAtLeast(f32),
-    VerticalVelocityAtMost(f32),
+    Bool(CharacterFactId, bool),
+    NumberAtLeast(CharacterFactId, f32),
+    NumberAtMost(CharacterFactId, f32),
+    Vec2LengthAtLeast(CharacterFactId, f32),
+    Vec2LengthAtMost(CharacterFactId, f32),
     StateTimeAtLeast(f32),
     StateTimeAtMost(f32),
     NormalizedTimeAtLeast(f32),
     NormalizedTimeAtMost(f32),
     ExitWindowOpen,
     AnimationFinished,
-    LocomotionMode(LocomotionMode),
     ActionRequested(CharacterActionId),
-    InhibitFlagPresent(String),
-    InhibitFlagMissing(String),
-    /// Custom tag-based condition evaluated against `CharacterAnimationFacts::custom_flags`.
-    /// Returns true when the named tag is present in the custom flags set.
-    CustomFlag(String),
-    /// Returns true when the named tag is absent from `CharacterAnimationFacts::custom_flags`.
-    CustomFlagMissing(String),
+    TagPresent(CharacterFactTag),
+    TagMissing(CharacterFactTag),
+}
+
+impl TransitionCondition {
+    pub fn bool_is(fact: impl Into<CharacterFactId>, value: bool) -> Self {
+        Self::Bool(fact.into(), value)
+    }
+
+    pub fn number_at_least(fact: impl Into<CharacterFactId>, value: f32) -> Self {
+        Self::NumberAtLeast(fact.into(), value)
+    }
+
+    pub fn number_at_most(fact: impl Into<CharacterFactId>, value: f32) -> Self {
+        Self::NumberAtMost(fact.into(), value)
+    }
+
+    pub fn vec2_length_at_least(fact: impl Into<CharacterFactId>, value: f32) -> Self {
+        Self::Vec2LengthAtLeast(fact.into(), value)
+    }
+
+    pub fn vec2_length_at_most(fact: impl Into<CharacterFactId>, value: f32) -> Self {
+        Self::Vec2LengthAtMost(fact.into(), value)
+    }
+
+    pub fn tag_present(tag: impl Into<CharacterFactTag>) -> Self {
+        Self::TagPresent(tag.into())
+    }
+
+    pub fn tag_missing(tag: impl Into<CharacterFactTag>) -> Self {
+        Self::TagMissing(tag.into())
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Reflect)]

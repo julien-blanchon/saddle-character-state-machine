@@ -8,9 +8,10 @@ use crate::components::{
     CharacterStateMachineRuntime,
 };
 use crate::config::{
-    BlendTree1D, BlendTreeParameter, CharacterStateMachineDefinition, CharacterStateMachineLibrary,
-    StateDefinition, TransitionCondition, TransitionDefinition,
+    BlendTree1D, CharacterStateMachineDefinition, CharacterStateMachineLibrary, StateDefinition,
+    TransitionCondition, TransitionDefinition,
 };
+use crate::extensions::parameters;
 use crate::messages::{StateEntered, StatePopped, StatePushed};
 use crate::{CharacterStateMachinePlugin, CharacterStateMachineSystems};
 
@@ -173,7 +174,7 @@ fn blend_tree_expands_to_weighted_base_bindings() {
         .with_fallback_state("Locomotion")
         .add_state(
             StateDefinition::new("Locomotion").with_blend_tree_1d(
-                BlendTree1D::new(BlendTreeParameter::Speed)
+                BlendTree1D::new(parameters::speed())
                     .with_point(0.0, "walk")
                     .with_point(1.0, "run"),
             ),
@@ -187,10 +188,7 @@ fn blend_tree_expands_to_weighted_base_bindings() {
         .world_mut()
         .spawn((
             CharacterStateMachine::new("blend_tree"),
-            CharacterAnimationFacts {
-                speed: 0.5,
-                ..default()
-            },
+            CharacterAnimationFacts::default().with_number("speed", 0.5),
         ))
         .id();
 
@@ -210,6 +208,48 @@ fn blend_tree_expands_to_weighted_base_bindings() {
     assert!((selection.active_bindings[0].weight - 0.5).abs() < 0.001);
     assert_eq!(selection.active_bindings[1].binding.0, "run");
     assert!((selection.active_bindings[1].weight - 0.5).abs() < 0.001);
+}
+
+#[test]
+fn blend_tree_can_sample_named_vec2_facts() {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins);
+    app.add_plugins(CharacterStateMachinePlugin::always_on(Update));
+
+    let definition = CharacterStateMachineDefinition::new("directional_blend_tree", "Strafe")
+        .with_fallback_state("Strafe")
+        .add_state(
+            StateDefinition::new("Strafe").with_blend_tree_1d(
+                BlendTree1D::new(parameters::movement_direction_x())
+                    .with_point(-1.0, "strafe_left")
+                    .with_point(1.0, "strafe_right"),
+            ),
+        );
+    app.world_mut()
+        .resource_mut::<CharacterStateMachineLibrary>()
+        .register(definition)
+        .unwrap();
+
+    let entity = app
+        .world_mut()
+        .spawn((
+            CharacterStateMachine::new("directional_blend_tree"),
+            CharacterAnimationFacts::default().with_vec2("movement_direction", Vec2::new(0.5, 0.0)),
+        ))
+        .id();
+
+    app.update();
+
+    let selection = app
+        .world()
+        .entity(entity)
+        .get::<CharacterAnimationSelection>()
+        .unwrap();
+    assert_eq!(selection.active_bindings.len(), 2);
+    assert_eq!(selection.active_bindings[0].binding.0, "strafe_left");
+    assert!((selection.active_bindings[0].weight - 0.25).abs() < 0.001);
+    assert_eq!(selection.active_bindings[1].binding.0, "strafe_right");
+    assert!((selection.active_bindings[1].weight - 0.75).abs() < 0.001);
 }
 
 #[test]

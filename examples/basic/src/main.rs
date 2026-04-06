@@ -1,6 +1,7 @@
 use saddle_character_state_machine_example_support as support;
 
 use bevy::prelude::*;
+use saddle_character_state_machine::extensions::{CharacterAnimationFactsExt, conditions, keys};
 use saddle_character_state_machine::*;
 use saddle_pane::prelude::*;
 
@@ -61,7 +62,7 @@ fn main() {
 }
 
 fn setup(mut commands: Commands, mut library: ResMut<CharacterStateMachineLibrary>) {
-    commands.spawn(Camera2d);
+    commands.spawn((Name::new("Basic Camera"), Camera2d));
 
     let definition = CharacterStateMachineDefinition::new("basic_demo", "Idle")
         .with_fallback_state("Idle")
@@ -75,11 +76,11 @@ fn setup(mut commands: Commands, mut library: ResMut<CharacterStateMachineLibrar
         )
         .add_transition(
             TransitionDefinition::switch("idle_to_move", "Idle", "Move")
-                .when(TransitionCondition::SpeedAtLeast(0.25)),
+                .when(conditions::speed_at_least(0.25)),
         )
         .add_transition(
             TransitionDefinition::switch("move_to_idle", "Move", "Idle")
-                .when(TransitionCondition::SpeedAtMost(0.1)),
+                .when(conditions::speed_at_most(0.1)),
         )
         .add_transition(
             TransitionDefinition::push("pulse_push", TransitionSource::Any, "Pulse")
@@ -94,18 +95,16 @@ fn setup(mut commands: Commands, mut library: ResMut<CharacterStateMachineLibrar
     commands.spawn((
         Name::new("Basic Demo Character"),
         CharacterStateMachine::new(definition_id),
-        CharacterAnimationFacts {
-            grounded: true,
-            ..default()
-        },
+        CharacterAnimationFacts::default().with_boolean(keys::GROUNDED, true),
         CharacterAnimationRequests::default(),
         DemoSprite,
         Sprite::from_color(Color::srgb(0.18, 0.47, 0.78), Vec2::new(180.0, 180.0)),
     ));
 
     commands.spawn((
+        Name::new("Basic HUD"),
         DemoLabel,
-        Text::new("saddle-character-state-machine basic"),
+        Text::new("State machine basic\nPane: tune cycle, movement, and pulse timing live"),
         Node {
             position_type: PositionType::Absolute,
             left: px(18.0),
@@ -143,16 +142,12 @@ fn drive_demo(
     let previous_phase = previous_elapsed % cycle_seconds;
 
     for (mut facts, mut requests) in &mut query {
-        facts.speed = if phase < move_start {
+        let speed = if phase < move_start {
             0.0
         } else {
             pane.move_speed
         };
-        facts.locomotion_mode = if facts.speed > 0.0 {
-            LocomotionMode::Run
-        } else {
-            LocomotionMode::Idle
-        };
+        facts.set_speed(speed);
         let pulse_crossed = previous_phase <= pulse_at && phase > pulse_at
             || previous_phase > phase && pulse_at <= phase;
         if pulse_crossed {

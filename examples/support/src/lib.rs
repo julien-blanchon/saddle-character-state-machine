@@ -4,6 +4,7 @@ use bevy::{
     animation::{AnimatedBy, AnimationTargetId, animated_field},
     prelude::*,
 };
+use saddle_character_state_machine::extensions::{conditions, keys, parameters};
 use saddle_character_state_machine::*;
 
 pub const RIG_NAME: &str = "Rig";
@@ -53,7 +54,7 @@ pub fn build_showcase_definition(
             StateDefinition::new("Locomotion")
                 .with_parent("Grounded")
                 .with_blend_tree_1d(
-                    BlendTree1D::new(BlendTreeParameter::Speed)
+                    BlendTree1D::new(parameters::speed())
                         .with_point(0.25, "walk")
                         .with_point(1.0, "run"),
                 )
@@ -97,16 +98,16 @@ pub fn build_showcase_definition(
         )
         .add_transition(
             TransitionDefinition::switch("idle_to_locomotion", "Idle", "Locomotion")
-                .when(TransitionCondition::SpeedAtLeast(0.25)),
+                .when(conditions::speed_at_least(0.25)),
         )
         .add_transition(
             TransitionDefinition::switch("locomotion_to_idle", "Locomotion", "Idle")
-                .when(TransitionCondition::SpeedAtMost(0.1)),
+                .when(conditions::speed_at_most(0.1)),
         )
         .add_transition(
             TransitionDefinition::switch("leave_ground", "Grounded", "JumpStart")
-                .when(TransitionCondition::Grounded(false))
-                .when(TransitionCondition::VerticalVelocityAtLeast(0.0)),
+                .when(conditions::grounded(false))
+                .when(conditions::vertical_velocity_at_least(0.0)),
         )
         .add_transition(
             TransitionDefinition::switch("jump_to_airborne", "JumpStart", "Airborne")
@@ -114,8 +115,8 @@ pub fn build_showcase_definition(
         )
         .add_transition(
             TransitionDefinition::switch("airborne_to_land", "Airborne", "Land")
-                .when(TransitionCondition::Grounded(true))
-                .when(TransitionCondition::VerticalVelocityAtMost(0.0)),
+                .when(conditions::grounded(true))
+                .when(conditions::vertical_velocity_at_most(0.0)),
         )
         .add_transition(
             TransitionDefinition::switch("land_to_idle", "Land", "Idle")
@@ -240,10 +241,7 @@ pub fn spawn_demo_character(
         .spawn((
             Name::new(name.to_string()),
             CharacterStateMachine::new(definition_id.into()),
-            CharacterAnimationFacts {
-                grounded: true,
-                ..default()
-            },
+            CharacterAnimationFacts::default().with_boolean(keys::GROUNDED, true),
             CharacterAnimationRequests::default(),
             AnimationPlayer::default(),
             bridge,

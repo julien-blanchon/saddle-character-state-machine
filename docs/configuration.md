@@ -14,20 +14,17 @@ This crate is configured through `CharacterStateMachineDefinition`, `StateDefini
 
 | Field | Type | Default | Effect | Common tuning advice |
 | --- | --- | --- | --- | --- |
-| `speed` | `f32` | `0.0` | Used by speed-based guards | Normalize to your movement model before writing facts |
-| `movement_direction` | `Vec2` | `Vec2::ZERO` | Consumer-owned directional context | Current built-in guards do not inspect this directly |
-| `locomotion_intensity` | `f32` | `0.0` | Optional gait intensity | Keep in `[0, 1]` if you expose it to custom systems |
-| `locomotion_mode` | `LocomotionMode` | `Idle` | Used by `TransitionCondition::LocomotionMode(...)` | Prefer this over hardcoding speed thresholds when the gameplay layer already resolved gait |
-| `grounded` | `bool` | `false` | Used by airborne / landing transitions | Set every frame |
-| `wall_contact` | `bool` | `false` | Used by wall-slide style states | Set every frame |
-| `vertical_velocity` | `f32` | `0.0` | Used for jump vs fall separation | Signed Y velocity is enough |
-| `facing_direction` | `Vec2` | `Vec2::ZERO` | Consumer-owned facing context | Useful for custom adapters or future directional bindings |
-| `aim_direction` | `Vec2` | `Vec2::ZERO` | Consumer-owned aim context | Not used by the built-in guards yet |
+| `numbers` | `HashMap<CharacterFactId, f32>` | `{}` | Stores named scalar facts such as speed or vertical velocity | Missing facts read back as `0.0` through the core evaluators |
+| `booleans` | `HashMap<CharacterFactId, bool>` | `{}` | Stores named boolean facts such as grounded or wall contact | Missing facts read back as `false` through the core evaluators |
+| `vectors` | `HashMap<CharacterFactId, Vec2>` | `{}` | Stores named 2D facts such as movement, facing, or aim direction | Missing facts read back as `Vec2::ZERO` through the core evaluators |
+| `tags` | `Vec<CharacterFactTag>` | `[]` | Stores optional categorical flags | Use stable strings for gameplay categories or recipe layers |
 | `animation_normalized_time` | `f32` | `0.0` | Explicit normalized playback position | Write this when another animation system already knows exact clip time |
 | `clip_finished` | `bool` | `false` | Drives `AnimationFinished` guards | The Bevy bridge can populate this automatically |
 | `exit_window_open` | `bool` | `false` | Drives `ExitWindowOpen` guards | Useful when the consumer owns more complex clip events |
-| `animation_locked` | `bool` | `false` | Used by `AnimationLocked(...)` guards | Keep separate from gameplay stun/freeze flags when possible |
-| `inhibit_flags` | `Vec<String>` | `[]` | Generic gating flags | Use stable strings like `"stunned"` or `"frozen"` |
+
+For common gameplay-oriented names such as `speed`, `grounded`, `wall_contact`, `vertical_velocity`, `movement_direction`, `facing_direction`, and `aim_direction`, use the `extensions` module instead of hardcoding raw strings everywhere.
+
+For projects that still want the old gait vocabulary, the optional `locomotion` module maps `LocomotionMode` onto generic tags and keeps locomotion-intensity helpers out of the core fact model.
 
 ## `StateDefinition`
 
@@ -47,20 +44,20 @@ This crate is configured through `CharacterStateMachineDefinition`, `StateDefini
 
 | Field | Type | Default | Effect | Notes |
 | --- | --- | --- | --- | --- |
-| `parameter` | `BlendTreeParameter` | required | Chooses which generic fact drives the 1D blend | `Speed` and `LocomotionIntensity` are the common locomotion choices |
+| `parameter` | `BlendTreeParameter` | required | Chooses which named fact drives the 1D blend | Use named numeric facts directly or sample a named `Vec2` fact |
 | `points` | `Vec<BlendTree1DPoint>` | `[]` | Ordered sample points used to compute 1-2 active bindings | Thresholds are sorted during evaluation |
 
 ## `BlendTreeParameter`
 
-Supported built-in inputs:
+Supported parameter sources:
 
-- `Speed`
-- `LocomotionIntensity`
-- `VerticalVelocity`
-- `MovementDirectionX`
-- `MovementDirectionY`
-- `FacingDirectionX`
-- `AimDirectionX`
+- `BlendTreeParameter::number("speed")`
+- `BlendTreeParameter::number("vertical_velocity")`
+- `BlendTreeParameter::vec2_x("movement_direction")`
+- `BlendTreeParameter::vec2_y("movement_direction")`
+- `BlendTreeParameter::vec2_length("movement_direction")`
+
+The `extensions::parameters` module exposes ergonomic constructors for the conventional keys used by the examples.
 
 ## `BlendTree1DPoint`
 
@@ -85,6 +82,17 @@ Supported built-in inputs:
 | `allow_self_transition` | `bool` | `false` | Allows `target == current` | Use sparingly |
 | `force_interrupt` | `bool` | `false` | Bypasses non-interruptible-state blocking | Reserve for truly global interrupts |
 | `push_conflict_policy` | `PushConflictPolicy` | `Stack` | Behavior when another pushed state is already active | `Reject` is useful for non-layerable actions; `ReplaceTop` is useful for emotes or hit-react upgrades |
+
+Generic guard constructors:
+
+- `TransitionCondition::bool_is("grounded", true)`
+- `TransitionCondition::number_at_least("speed", 0.25)`
+- `TransitionCondition::number_at_most("vertical_velocity", 0.0)`
+- `TransitionCondition::vec2_length_at_least("movement_direction", 0.1)`
+- `TransitionCondition::tag_present("powered_up")`
+- `TransitionCondition::tag_missing("stunned")`
+
+The `extensions::conditions` module keeps the old convenience surface for common patterns such as speed and grounded checks, while the optional `locomotion` module exposes `mode_is(...)` on top of tags.
 
 ## `BlendDefinition`
 

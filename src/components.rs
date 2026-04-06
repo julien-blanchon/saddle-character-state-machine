@@ -1,20 +1,12 @@
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 
 use crate::config::{
-    CharacterActionId, CharacterAnimationBindingId, CharacterStateId,
-    CharacterStateMachineDefinitionId, CharacterTransitionId, TransitionCondition,
-    TransitionOperation,
+    CharacterActionId, CharacterAnimationBindingId, CharacterFactId, CharacterFactTag,
+    CharacterStateId, CharacterStateMachineDefinitionId, CharacterTransitionId,
+    TransitionCondition, TransitionOperation,
 };
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Reflect)]
-pub enum LocomotionMode {
-    #[default]
-    Idle,
-    Walk,
-    Run,
-    Sprint,
-    Custom(String),
-}
 
 #[derive(Component, Clone, Debug, Reflect)]
 #[reflect(Component)]
@@ -37,24 +29,113 @@ impl CharacterStateMachine {
 #[derive(Component, Clone, Debug, Default, Reflect)]
 #[reflect(Component, Default)]
 pub struct CharacterAnimationFacts {
-    pub speed: f32,
-    pub movement_direction: Vec2,
-    pub locomotion_intensity: f32,
-    pub locomotion_mode: LocomotionMode,
-    pub grounded: bool,
-    pub wall_contact: bool,
-    pub vertical_velocity: f32,
-    pub facing_direction: Vec2,
-    pub aim_direction: Vec2,
+    pub numbers: HashMap<CharacterFactId, f32>,
+    pub booleans: HashMap<CharacterFactId, bool>,
+    pub vectors: HashMap<CharacterFactId, Vec2>,
+    pub tags: Vec<CharacterFactTag>,
     pub animation_normalized_time: f32,
     pub clip_finished: bool,
     pub exit_window_open: bool,
-    pub animation_locked: bool,
-    pub inhibit_flags: Vec<String>,
-    /// Generic tag-based flags for custom transition conditions.
-    /// Use `TransitionCondition::CustomFlag("tag")` / `CustomFlagMissing("tag")` to guard
-    /// transitions based on game-specific state that doesn't fit the built-in fact fields.
-    pub custom_flags: Vec<String>,
+}
+
+impl CharacterAnimationFacts {
+    pub fn with_number(mut self, fact: impl Into<CharacterFactId>, value: f32) -> Self {
+        self.set_number(fact, value);
+        self
+    }
+
+    pub fn set_number(&mut self, fact: impl Into<CharacterFactId>, value: f32) {
+        self.numbers.insert(fact.into(), value);
+    }
+
+    pub fn remove_number(&mut self, fact: &str) -> Option<f32> {
+        self.numbers.remove(fact)
+    }
+
+    pub fn number(&self, fact: &str) -> Option<f32> {
+        self.numbers.get(fact).copied()
+    }
+
+    pub fn number_or(&self, fact: &str, default: f32) -> f32 {
+        self.number(fact).unwrap_or(default)
+    }
+
+    pub fn with_boolean(mut self, fact: impl Into<CharacterFactId>, value: bool) -> Self {
+        self.set_boolean(fact, value);
+        self
+    }
+
+    pub fn set_boolean(&mut self, fact: impl Into<CharacterFactId>, value: bool) {
+        self.booleans.insert(fact.into(), value);
+    }
+
+    pub fn remove_boolean(&mut self, fact: &str) -> Option<bool> {
+        self.booleans.remove(fact)
+    }
+
+    pub fn boolean(&self, fact: &str) -> Option<bool> {
+        self.booleans.get(fact).copied()
+    }
+
+    pub fn boolean_or(&self, fact: &str, default: bool) -> bool {
+        self.boolean(fact).unwrap_or(default)
+    }
+
+    pub fn with_vec2(mut self, fact: impl Into<CharacterFactId>, value: Vec2) -> Self {
+        self.set_vec2(fact, value);
+        self
+    }
+
+    pub fn set_vec2(&mut self, fact: impl Into<CharacterFactId>, value: Vec2) {
+        self.vectors.insert(fact.into(), value);
+    }
+
+    pub fn remove_vec2(&mut self, fact: &str) -> Option<Vec2> {
+        self.vectors.remove(fact)
+    }
+
+    pub fn vec2(&self, fact: &str) -> Option<Vec2> {
+        self.vectors.get(fact).copied()
+    }
+
+    pub fn vec2_or(&self, fact: &str, default: Vec2) -> Vec2 {
+        self.vec2(fact).unwrap_or(default)
+    }
+
+    pub fn with_tag(mut self, tag: impl Into<CharacterFactTag>) -> Self {
+        self.insert_tag(tag);
+        self
+    }
+
+    pub fn insert_tag(&mut self, tag: impl Into<CharacterFactTag>) {
+        let tag = tag.into();
+        if self.tags.iter().all(|existing| existing != &tag) {
+            self.tags.push(tag);
+        }
+    }
+
+    pub fn remove_tag(&mut self, tag: &str) -> bool {
+        if let Some(index) = self.tags.iter().position(|existing| existing.0 == tag) {
+            self.tags.remove(index);
+            return true;
+        }
+        false
+    }
+
+    pub fn has_tag(&self, tag: &str) -> bool {
+        self.tags.iter().any(|existing| existing.0 == tag)
+    }
+
+    pub fn clear_tags_with_prefix(&mut self, prefix: &str) {
+        self.tags.retain(|tag| !tag.0.starts_with(prefix));
+    }
+
+    pub fn clear_gameplay_facts(&mut self) {
+        self.numbers.clear();
+        self.booleans.clear();
+        self.vectors.clear();
+        self.tags.clear();
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Reflect)]
