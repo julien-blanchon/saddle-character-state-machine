@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 use saddle_bevy_e2e::{action::Action, actions::assertions, scenario::Scenario};
 use saddle_character_state_machine::{
-    CharacterAnimationFacts, CharacterAnimationRequests, CharacterAnimationSelection,
-    CharacterStateMachineRuntime, extensions::CharacterAnimationFactsExt,
+    CharacterAnimationSelection, CharacterStateMachineRuntime,
 };
 
 pub fn list_scenarios() -> Vec<&'static str> {
@@ -22,43 +21,14 @@ pub fn scenario_by_name(name: &str) -> Option<Scenario> {
     }
 }
 
-fn character_entity(world: &mut World) -> Entity {
-    let mut query = world.query_filtered::<Entity, With<crate::LabCharacter>>();
-    query
-        .single(world)
-        .expect("lab character should exist for e2e")
-}
-
-fn push_request(action: &'static str) -> Action {
-    Action::Custom(Box::new(move |world| {
-        let entity = character_entity(world);
-        let mut entity_ref = world.entity_mut(entity);
-        let mut requests = entity_ref
-            .get_mut::<CharacterAnimationRequests>()
-            .expect("lab character should expose request queue");
-        requests.push(action);
-    }))
-}
-
-fn trigger_airborne() -> Action {
-    Action::Custom(Box::new(move |world| {
-        let entity = character_entity(world);
-        {
-            let mut entity_ref = world.entity_mut(entity);
-            let mut facts = entity_ref
-                .get_mut::<CharacterAnimationFacts>()
-                .expect("lab character should expose animation facts");
-            facts.set_grounded(false);
-            facts.set_vertical_velocity(4.8);
-        }
-        world.resource_mut::<crate::AirState>().airborne_time = 0.24;
-    }))
-}
-
+/// Boot the lab, verify idle, exercise Idle <-> Locomotion transitions via keyboard,
+/// and capture screenshots at each stage.
 fn state_machine_smoke() -> Scenario {
     Scenario::builder("state_machine_smoke")
-        .description("Boot the crate-local state-machine lab, verify the hero initializes into a stable state with active bindings, and capture the baseline scene.")
+        .description("Boot the lab, verify idle state, move with W to trigger Locomotion, release to return to Idle.")
+        // -- Let the scene settle --
         .then(Action::WaitFrames(20))
+        .then(Action::Log("Verifying initial idle state".into()))
         .then(assertions::component_where::<CharacterStateMachineRuntime, crate::LabCharacter>(
             "runtime exists on the lab character",
             |runtime| runtime.current_state.is_some(),
@@ -71,64 +41,117 @@ fn state_machine_smoke() -> Scenario {
             "hero starts in idle",
             |runtime| runtime.current_state.as_ref().is_some_and(|state| state.0 == "Idle"),
         ))
-        .then(Action::Screenshot("state_machine_smoke".into()))
-        .then(Action::WaitFrames(1))
+        .then(Action::Screenshot("idle_baseline".into()))
+
+        // -- Hold W to trigger Locomotion --
+        .then(Action::Log("Pressing W to trigger locomotion".into()))
+        .then(Action::HoldKey { key: KeyCode::KeyW, frames: 30 })
+        .then(assertions::component_where::<CharacterStateMachineRuntime, crate::LabCharacter>(
+            "hero transitions to locomotion on movement input",
+            |runtime| runtime.current_state.as_ref().is_some_and(|s| s.0 == "Locomotion"),
+        ))
+        .then(Action::Screenshot("locomotion_active".into()))
+
+        // -- Release and wait for Idle return --
+        .then(Action::Log("Released W, waiting for idle return".into()))
+        .then(Action::WaitFrames(30))
+        .then(assertions::component_where::<CharacterStateMachineRuntime, crate::LabCharacter>(
+            "hero returns to idle when movement stops",
+            |runtime| runtime.current_state.as_ref().is_some_and(|s| s.0 == "Idle"),
+        ))
+        .then(Action::Screenshot("idle_returned".into()))
+
         .then(assertions::log_summary("state_machine_smoke"))
         .build()
 }
 
+/// Press Space to jump, verify the hero reaches airborne state via the real
+/// jump arc in control_character, then wait for landing back to idle.
 fn state_machine_airborne() -> Scenario {
     Scenario::builder("state_machine_airborne")
-        .description("Force the hero into an authored jump arc, verify the machine reaches airborne state, then wait for the landing cycle to return to idle.")
+        .description("Press Space to jump, verify airborne states through the jump arc, wait for landing cycle back to idle.")
         .then(Action::WaitFrames(10))
-        .then(trigger_airborne())
-        .then(Action::WaitFrames(20))
+        .then(Action::Log("Pressing Space to jump".into()))
+        .then(Action::PressKey(KeyCode::Space))
+        .then(Action::WaitFrames(2))
+        .then(Action::ReleaseKey(KeyCode::Space))
+
+        // -- After a few frames the jump arc should reach JumpStart or Airborne --
+        .then(Action::WaitFrames(15))
         .then(assertions::component_where::<CharacterStateMachineRuntime, crate::LabCharacter>(
             "hero reaches airborne during the jump arc",
-            |runtime| runtime.current_state.as_ref().is_some_and(|state| state.0 == "Airborne"),
+            |runtime| {
+                runtime.current_state.as_ref().is_some_and(|s| {
+                    s.0 == "JumpStart" || s.0 == "Airborne"
+                })
+            },
         ))
         .then(Action::Screenshot("airborne_peak".into()))
+        .then(Action::Log("Hero is airborne, waiting for landing".into()))
+
+        // -- Wait for the full jump arc + land + land-to-idle transition (generous) --
         .then(Action::WaitFrames(80))
         .then(assertions::component_where::<CharacterStateMachineRuntime, crate::LabCharacter>(
-            "hero returns to idle after landing",
+            "hero returned to idle after landing",
             |runtime| runtime.current_state.as_ref().is_some_and(|state| state.0 == "Idle"),
         ))
         .then(Action::Screenshot("airborne_recovered".into()))
-        .then(Action::WaitFrames(1))
+
         .then(assertions::log_summary("state_machine_airborne"))
         .build()
 }
 
+/// Exercise stacked action handling with real keyboard input:
+/// reload (R), attempt attack during reload (J, should be rejected),
+/// then emote (E) after reload completes.
 fn state_machine_actions() -> Scenario {
     Scenario::builder("state_machine_actions")
-        .description("Exercise stacked action handling by entering reload, verifying attack is rejected while reload is active, and then triggering an emote once the stack clears.")
+        .description("Press R to reload, press J during reload (rejected because non-interruptible), wait for reload to complete, then press E for emote.")
         .then(Action::WaitFrames(12))
-        .then(push_request("reload"))
+
+        // -- Trigger reload with R --
+        .then(Action::Log("Pressing R to trigger reload".into()))
+        .then(Action::PressKey(KeyCode::KeyR))
+        .then(Action::WaitFrames(1))
+        .then(Action::ReleaseKey(KeyCode::KeyR))
         .then(Action::WaitFrames(4))
         .then(assertions::component_where::<CharacterStateMachineRuntime, crate::LabCharacter>(
             "reload push becomes the active state",
             |runtime| runtime.current_state.as_ref().is_some_and(|state| state.0 == "Reload"),
         ))
-        .then(push_request("attack"))
+
+        // -- Attempt attack during reload (should be rejected) --
+        .then(Action::Log("Pressing J during reload (should be rejected)".into()))
+        .then(Action::PressKey(KeyCode::KeyJ))
+        .then(Action::WaitFrames(1))
+        .then(Action::ReleaseKey(KeyCode::KeyJ))
         .then(Action::WaitFrames(4))
         .then(assertions::component_where::<CharacterStateMachineRuntime, crate::LabCharacter>(
             "attack stays rejected while reload is non-interruptible",
             |runtime| runtime.current_state.as_ref().is_some_and(|state| state.0 == "Reload"),
         ))
         .then(Action::Screenshot("reload_rejects_attack".into()))
+
+        // -- Wait for reload to complete (0.8s at 60fps = 48 frames, plus margin) --
+        .then(Action::Log("Waiting for reload to complete".into()))
         .then(Action::WaitFrames(52))
         .then(assertions::component_where::<CharacterStateMachineRuntime, crate::LabCharacter>(
             "reload eventually pops back to idle",
             |runtime| runtime.current_state.as_ref().is_some_and(|state| state.0 == "Idle"),
         ))
-        .then(push_request("emote"))
+
+        // -- Trigger emote with E --
+        .then(Action::Log("Pressing E to trigger emote".into()))
+        .then(Action::PressKey(KeyCode::KeyE))
+        .then(Action::WaitFrames(1))
+        .then(Action::ReleaseKey(KeyCode::KeyE))
         .then(Action::WaitFrames(4))
         .then(assertions::component_where::<CharacterStateMachineRuntime, crate::LabCharacter>(
             "emote becomes the active transient state",
             |runtime| runtime.current_state.as_ref().is_some_and(|state| state.0 == "Emote"),
         ))
         .then(Action::Screenshot("emote_push".into()))
-        .then(Action::WaitFrames(1))
+
         .then(assertions::log_summary("state_machine_actions"))
         .build()
 }

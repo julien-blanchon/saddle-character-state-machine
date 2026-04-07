@@ -4,8 +4,9 @@ members = [
     "basic",
     "locomotion_3d",
     "sprite_2d",
-    "stacked_actions",
     "graph_preview",
+    "controller_3d",
+    "platformer_2d",
     "lab",
 ]
 resolver = "3"
@@ -17,6 +18,12 @@ bevy_input_focus = "0.18"
 bevy_ui_widgets = "0.18"
 saddle-character-state-machine = { path = ".." }
 saddle-pane = { git = "https://github.com/julien-blanchon/saddle-pane" }
+avian3d = "0.6"
+saddle-character-controller = { git = "https://github.com/julien-blanchon/saddle-character-controller", default-features = false }
+saddle-bevy-e2e = { git = "https://github.com/julien-blanchon/saddle-bevy-e2e", features = ["json"] }
+avian2d = "0.6.0-rc.1"
+saddle-character-platformer-controller = { git = "https://github.com/julien-blanchon/saddle-character-platformer-controller" }
+saddle-animation-spritesheet = { git = "https://github.com/julien-blanchon/saddle-animation-spritesheet" }
 
 [workspace.lints.clippy]
 too_many_arguments = "allow"

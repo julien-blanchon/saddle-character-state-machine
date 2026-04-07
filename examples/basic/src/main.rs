@@ -11,20 +11,9 @@ struct DemoSprite;
 #[derive(Component)]
 struct DemoLabel;
 
-#[derive(Resource, Default)]
-struct DemoClock {
-    elapsed: f32,
-}
-
 #[derive(Resource, Pane)]
 #[pane(title = "State Machine Basic")]
 struct BasicPane {
-    #[pane(tab = "Drive", slider, min = 1.5, max = 8.0, step = 0.1)]
-    cycle_seconds: f32,
-    #[pane(tab = "Drive", slider, min = 0.0, max = 6.0, step = 0.1)]
-    move_start_seconds: f32,
-    #[pane(tab = "Drive", slider, min = 0.0, max = 6.0, step = 0.1)]
-    pulse_at_seconds: f32,
     #[pane(tab = "Drive", slider, min = 0.0, max = 1.5, step = 0.05)]
     move_speed: f32,
     #[pane(tab = "Runtime", monitor)]
@@ -38,9 +27,6 @@ struct BasicPane {
 impl Default for BasicPane {
     fn default() -> Self {
         Self {
-            cycle_seconds: 4.0,
-            move_start_seconds: 1.5,
-            pulse_at_seconds: 3.0,
             move_speed: 1.0,
             current_state: "Idle".into(),
             current_binding: "idle".into(),
@@ -53,17 +39,20 @@ fn main() {
     App::new()
         .add_plugins((DefaultPlugins, support::pane_plugins()))
         .add_plugins(CharacterStateMachinePlugin::always_on(Update))
-        .insert_resource(DemoClock::default())
         .init_resource::<BasicPane>()
         .register_pane::<BasicPane>()
         .add_systems(Startup, setup)
-        .add_systems(Update, (drive_demo, paint_sprite, update_label))
+        .add_systems(Update, (keyboard_drive, paint_sprite, update_label))
         .run();
 }
 
 fn setup(mut commands: Commands, mut library: ResMut<CharacterStateMachineLibrary>) {
     commands.spawn((Name::new("Basic Camera"), Camera2d));
 
+    // State graph:
+    //   Idle  <--speed-->  Move
+    //     \                  /
+    //      +-- Pulse (push) --+   (Space triggers one-shot overlay, pops when done)
     let definition = CharacterStateMachineDefinition::new("basic_demo", "Idle")
         .with_fallback_state("Idle")
         .add_state(StateDefinition::new("Idle").with_binding("idle"))
@@ -104,7 +93,7 @@ fn setup(mut commands: Commands, mut library: ResMut<CharacterStateMachineLibrar
     commands.spawn((
         Name::new("Basic HUD"),
         DemoLabel,
-        Text::new("State machine basic\nPane: tune cycle, movement, and pulse timing live"),
+        Text::new("Left/Right: move | Space: pulse\nPane: tune move speed live"),
         Node {
             position_type: PositionType::Absolute,
             left: px(18.0),
@@ -121,9 +110,11 @@ fn setup(mut commands: Commands, mut library: ResMut<CharacterStateMachineLibrar
     ));
 }
 
-fn drive_demo(
-    time: Res<Time>,
-    mut clock: ResMut<DemoClock>,
+/// Reads keyboard input and sets animation facts + action requests.
+/// Left/Right arrows set speed (triggers Idle <-> Move transitions).
+/// Space pushes the "pulse" action (temporary overlay state).
+fn keyboard_drive(
+    keyboard: Res<ButtonInput<KeyCode>>,
     pane: Res<BasicPane>,
     mut query: Query<
         (
@@ -133,24 +124,12 @@ fn drive_demo(
         With<DemoSprite>,
     >,
 ) {
-    let cycle_seconds = pane.cycle_seconds.max(0.5);
-    let move_start = pane.move_start_seconds.clamp(0.0, cycle_seconds);
-    let pulse_at = pane.pulse_at_seconds.clamp(0.0, cycle_seconds);
-    let previous_elapsed = clock.elapsed;
-    clock.elapsed += time.delta_secs();
-    let phase = clock.elapsed % cycle_seconds;
-    let previous_phase = previous_elapsed % cycle_seconds;
-
     for (mut facts, mut requests) in &mut query {
-        let speed = if phase < move_start {
-            0.0
-        } else {
-            pane.move_speed
-        };
-        facts.set_speed(speed);
-        let pulse_crossed = previous_phase <= pulse_at && phase > pulse_at
-            || previous_phase > phase && pulse_at <= phase;
-        if pulse_crossed {
+        let moving =
+            keyboard.pressed(KeyCode::ArrowRight) || keyboard.pressed(KeyCode::ArrowLeft);
+        facts.set_speed(if moving { pane.move_speed } else { 0.0 });
+
+        if keyboard.just_pressed(KeyCode::Space) {
             requests.push("pulse");
         }
     }
@@ -199,8 +178,9 @@ fn update_label(
         .unwrap_or("none");
 
     label.0 = format!(
-        "saddle-character-state-machine basic\nstate: {current}\nbinding: {binding}\nstate time: {:.2}\nlast transition: {transition}",
-        runtime.state_elapsed_seconds
+        "Left/Right: move | Space: pulse\nstate: {current}  binding: {binding}\nstack: {}  state time: {:.2}\nlast transition: {transition}",
+        runtime.state_stack.len(),
+        runtime.state_elapsed_seconds,
     );
 
     let pane = pane.bypass_change_detection();

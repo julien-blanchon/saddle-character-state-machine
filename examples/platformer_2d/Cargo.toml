@@ -1,0 +1,21 @@
+[package]
+name = "saddle-character-state-machine-example-platformer-2d"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+e2e = ["dep:saddle-bevy-e2e"]
+
+[dependencies]
+bevy = { workspace = true }
+avian2d = { workspace = true }
+saddle-character-platformer-controller = { workspace = true }
+saddle-animation-spritesheet = { workspace = true }
+saddle-character-state-machine = { workspace = true }
+saddle-character-state-machine-example-support = { path = "../support" }
+saddle-pane = { workspace = true }
+saddle-bevy-e2e = { workspace = true, optional = true }
+
+[lints]
+workspace = true
